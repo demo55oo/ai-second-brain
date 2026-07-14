@@ -17,6 +17,7 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/brain/search": ["./content/knowledge/**/*"],
     "/api/brain/upload": ["./content/knowledge/**/*"],
+    "/api/brain": ["./content/knowledge/**/*"],
     "/api/jarvis-code/run": ["./content/knowledge/**/*"],
     "/api/studio/docs": ["./content/knowledge/**/*"],
     // Carousel + newsletter image gen read the founder's face and locked

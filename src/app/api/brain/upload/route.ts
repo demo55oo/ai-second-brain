@@ -11,48 +11,51 @@ import {
   clearVault,
   type ParsedNote,
 } from "@/lib/vault-supabase";
+import {
+  ownerKnowledgeWritable,
+  saveOwnerNotes,
+  listOwnerNotes,
+} from "@/lib/owner-knowledge";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 /**
  * POST /api/brain/upload
- * multipart/form-data with one or more files:
- *   - .md / .txt / .markdown notes
- *   - .zip of an Obsidian vault (or folder of markdown)
- * Optional field `folder` prefixes relative paths.
- * Optional field `replace` (default "1") — clears the vault first so uploads
- * fully replace any previous demo/Danny seed.
- *
- * POST /api/brain/upload?seed=1 — seed from content/knowledge/<client> (demo only)
+ * Prefer Supabase when configured; otherwise save to local owner knowledge
+ * (no Supabase keys required). Uploads always replace prior brain content.
  */
 export async function POST(req: Request) {
   try {
-    if (!vaultBackendReady()) {
+    const url = new URL(req.url);
+    const useSupabase = vaultBackendReady();
+
+    if (url.searchParams.get("seed") === "1") {
+      if (!useSupabase) {
+        return NextResponse.json(
+          { ok: false, error: "Seed needs Supabase. Or just upload your own markdown." },
+          { status: 503 }
+        );
+      }
+      const result = await seedFromKnowledge();
+      const stats = await getVaultStats();
+      return NextResponse.json({ ok: true, ...result, stats, mode: "supabase" });
+    }
+
+    if (!useSupabase && !ownerKnowledgeWritable()) {
       return NextResponse.json(
         {
           ok: false,
           error:
-            "Supabase not configured. Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY, then apply supabase/migrations.",
+            "Cloud host cannot save uploads without Supabase. Chat still works. Add Supabase keys for persistent vault uploads, or run locally.",
         },
         { status: 503 }
       );
     }
 
-    const url = new URL(req.url);
-    if (url.searchParams.get("seed") === "1") {
-      const result = await seedFromKnowledge();
-      const stats = await getVaultStats();
-      return NextResponse.json({ ok: true, ...result, stats });
-    }
-
     const form = await req.formData();
     const folderPrefix = String(form.get("folder") || "").replace(/\\/g, "/").replace(/^\/|\/$/g, "");
-    // Default replace=1 so user uploads become the only brain — Danny demo is cleared.
-    const replaceRaw = form.get("replace");
-    const replace = replaceRaw == null ? true : String(replaceRaw) !== "0" && String(replaceRaw) !== "false";
     const files = form.getAll("files").filter((f): f is File => typeof f !== "string" && !!f);
-    // also accept single `file`
     const single = form.get("file");
     if (single && typeof single !== "string") files.push(single);
 
@@ -82,26 +85,44 @@ export async function POST(req: Request) {
 
     if (!notes.length) {
       return NextResponse.json(
-        { ok: false, error: "No markdown notes found in upload. Send .md files or a .zip of them." },
+        { ok: false, error: "No markdown notes found. Send .md files or a .zip of them." },
         { status: 400 }
       );
     }
 
-    let cleared = 0;
-    if (replace) {
-      cleared = await clearVault(APP_CLIENT);
+    if (useSupabase) {
+      const cleared = await clearVault(APP_CLIENT);
+      const result = await upsertVaultNotes(notes, APP_CLIENT);
+      const stats = await getVaultStats();
+      return NextResponse.json({
+        ok: true,
+        mode: "supabase",
+        uploaded: notes.length,
+        replaced: true,
+        cleared,
+        ...result,
+        stats,
+        client: APP_CLIENT,
+      });
     }
 
-    const result = await upsertVaultNotes(notes, APP_CLIENT);
-    const stats = await getVaultStats();
+    // Local owner path — no Supabase
+    const result = await saveOwnerNotes(
+      notes.map((n) => ({
+        filename: path.basename(n.path),
+        raw: `---\ntitle: ${JSON.stringify(n.title)}\n---\n\n${n.body}\n`,
+      }))
+    );
+    const owner = await listOwnerNotes();
     return NextResponse.json({
       ok: true,
+      mode: "local",
       uploaded: notes.length,
-      replaced: replace,
-      cleared,
-      ...result,
-      stats,
-      client: APP_CLIENT,
+      replaced: true,
+      documents: result.documents,
+      chunks: result.documents,
+      stats: { documents: owner.length, chunks: owner.length, folders: 1 },
+      client: "owner",
     });
   } catch (err) {
     console.error("[brain/upload]", err);
@@ -140,6 +161,7 @@ async function seedFromKnowledge() {
   if (!notes.length) {
     throw new Error(`No markdown found under content/knowledge/${APP_CLIENT}`);
   }
+  await clearVault(APP_CLIENT);
   const result = await upsertVaultNotes(notes, APP_CLIENT);
   return { seeded: notes.length, ...result, source: `content/knowledge/${APP_CLIENT}` };
 }

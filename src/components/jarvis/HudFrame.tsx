@@ -4,11 +4,11 @@ import { useEffect, useState } from "react";
 
 /**
  * The Iron-Man HUD dressing: corner brackets, a vignette + grid, and a live
- * clock. Pure chrome — it frames the live dashboard and sells the "mission
- * control" feel without carrying state.
+ * clock. Pages can mount utility actions (nav chips, sound, settings) into the
+ * top rail via `actions` so the stage below stays clear.
  */
 
-export default function HudFrame({ children }: { children: React.ReactNode }) {
+export default function HudFrame({ children, actions }: { children: React.ReactNode; actions?: React.ReactNode }) {
   const [clock, setClock] = useState<string>("");
   const [date, setDate] = useState<string>("");
 
@@ -25,9 +25,7 @@ export default function HudFrame({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="relative h-full w-full overflow-hidden">
-      {/* deep field background */}
       <div className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(120% 90% at 50% 35%, #060a14 0%, #02040a 60%, #010207 100%)" }} />
-      {/* faint grid */}
       <div
         className="pointer-events-none absolute inset-0 opacity-[0.25]"
         style={{
@@ -39,7 +37,6 @@ export default function HudFrame({ children }: { children: React.ReactNode }) {
         }}
       />
 
-      {/* corner brackets */}
       {([
         "left-3 top-3 border-l border-t",
         "right-3 top-3 border-r border-t",
@@ -49,18 +46,24 @@ export default function HudFrame({ children }: { children: React.ReactNode }) {
         <div key={c} className={`pointer-events-none absolute h-6 w-6 border-cyan-300/40 ${c}`} />
       ))}
 
-      {/* top bar */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between px-7 py-4">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-between gap-3 px-6 py-2.5">
         <div className="flex items-baseline gap-2.5">
           <span className="text-[15px] font-bold tracking-[0.3em] text-cyan-200">SECOND BRAIN</span>
         </div>
-        <div className="flex items-center gap-4 font-mono text-[11px] text-white/45">
-          <span className="tracking-widest text-white/30">{date}</span>
-          <span className="tabular-nums tracking-widest text-cyan-200/80">{clock}</span>
+        <div className="flex items-center gap-3">
+          <div className="hidden items-center gap-4 font-mono text-[11px] text-white/45 md:flex">
+            <span className="tracking-widest text-white/30">{date}</span>
+            <span className="tabular-nums tracking-widest text-cyan-200/80">{clock}</span>
+          </div>
+          {actions && (
+            <>
+              <span aria-hidden className="hidden h-4 w-px bg-white/10 md:block" />
+              <div className="pointer-events-auto flex items-center gap-2">{actions}</div>
+            </>
+          )}
         </div>
       </div>
 
-      {/* content */}
       <div className="relative z-10 h-full w-full">{children}</div>
     </div>
   );

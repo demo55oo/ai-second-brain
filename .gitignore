@@ -23,5 +23,6 @@ mission-control/.trash/
 # Claude Code mission-control run scratch
 .jarvis-code/
 
-# Electron packaging output
-dist-electron/
+content/knowledge/owner/knowledge/*
+!content/knowledge/owner/knowledge/.gitkeep
+

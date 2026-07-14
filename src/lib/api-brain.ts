@@ -35,14 +35,25 @@ async function gatherContext(instruction: string): Promise<{
 }> {
   let hits: Awaited<ReturnType<typeof hybridSearch>> = [];
   let userVault = false;
+  let ownerLocal = false;
   try {
     const { hasUserVault } = await import("./vault-supabase");
     userVault = await hasUserVault();
   } catch {
     userVault = false;
   }
+  try {
+    const { hasOwnerKnowledge, searchOwnerNotes } = await import("./owner-knowledge");
+    ownerLocal = await hasOwnerKnowledge();
+    if (ownerLocal && !userVault) {
+      hits = await searchOwnerNotes(instruction, 8);
+      return { hits, docs: "", preamble: "", source: "vault" };
+    }
+  } catch {
+    ownerLocal = false;
+  }
 
-  // User-uploaded vault is the source of truth — do NOT mix in Danny's bundled profile.
+  // User-uploaded Supabase vault is the source of truth — do NOT mix in Danny.
   if (userVault) {
     try {
       hits = await hybridSearch(instruction, 8);
