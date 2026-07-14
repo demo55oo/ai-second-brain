@@ -13,24 +13,19 @@ import { cn } from "@/lib/utils";
  * Every level is a different KIND of node:
  *
  *   tier 0  CEO        — the command node (hero, with a live orb ring)
- *   tier 1  C-suite    — department "module" nodes (square icon chip + accent)
- *   tier 2  tools      — direct capabilities each executive can call
- *           + Research  — a SHARED tool node, hub-mounted above the tools with
- *                         edges fanning in from all four C-suite heads
- *   tier 3  task calls — icon-only function buttons in a horizontal row under
- *                        selected tools (Content formats, Ops tasks, Web builds,
- *                        Lead tasks)
+ *   tier 1  C-suite    — CMO + Research as balanced department "module" nodes,
+ *                        joined by a dashed lateral wire (the CMO consumes the
+ *                        shared research brief — an exchange, not a hierarchy)
+ *   tier 2  Content    — the producing specialist, same module treatment
+ *   tier 3  formats    — the six real content formats as labelled cards in a
+ *                        centred strip along the bottom
  *
- * Nodes are placed analytically (normalised x/y per node) and the edges are an
- * SVG layer measured from the real card rects, so the curved connectors +
- * connection handles stay glued on. Active paths light up and run animated data
- * packets down the wire. The mission feed lives on the nodes as little
- * notification panes.
- *
- * Research is shared purely *visually* here (extra edges from every department).
- * The routing tree in `org.ts` is untouched, so the live run still fires it as
- * the CMO's specialist — these edges only light when both ends are engaged, so a
- * single-department run never falsely lights the other heads' research lines.
+ * Tiers 0–2 are placed analytically (normalised x/y per node); the format strip
+ * lays itself out with flexbox so the cards keep natural widths at any screen
+ * size. The edges are an SVG layer measured from the real card rects, so the
+ * connectors + connection handles stay glued on either way. Active paths light
+ * up and run animated data packets down the wire. The mission feed lives on the
+ * nodes as little notification panes.
  */
 
 type Props = {
@@ -45,127 +40,52 @@ type Tier = 0 | 1 | 2 | 3;
 type Lay = { id: string; tier: Tier; x: number; y: number };
 
 /**
- * Display-only metadata for capability nodes and last-level task chips that
- * don't exist in the routing tree yet. They show the intended employee/tool
- * model without changing the working runtime.
+ * Marketing-only org: every node on this chart is a REAL node from org.ts that
+ * the runtime can actually fire. There are no decorative placeholders — if you
+ * see it here, an instruction can light it up.
  */
-const EXTRA: Record<string, { title: string; label: string; color: string; icon: string }> = {
-  // CMO · direct tools (violet)
-  "cmo-newsletter": { title: "Newsletter", label: "email assets", color: "#b794f6", icon: "Article" },
-  "cmo-profile": { title: "Profile", label: "bio & CTA", color: "#c084fc", icon: "UsersThree" },
-  // COO · direct tools (green)
-  "coo-calendar": { title: "Calendar", label: "weekly cadence", color: "#34d399", icon: "CalendarCheck" },
-  "coo-systems": { title: "Systems", label: "SOP library", color: "#10b981", icon: "ClipboardText" },
-  // CTO · direct tools (blue)
-  "cto-automations": { title: "Automations", label: "agent flows", color: "#38bdf8", icon: "FlowArrow" },
-  "cto-apps": { title: "Apps", label: "internal tools", color: "#60a5fa", icon: "Code" },
-  // CRO · direct tools (amber)
-  "cro-qualification": { title: "Qualify", label: "ICP scoring", color: "#fbbf24", icon: "Target" },
-  "cro-outreach": { title: "Outreach", label: "message drafts", color: "#f59e0b", icon: "PaperPlaneTilt" },
 
-  // COO · Ops last-level tasks (green)
-  "ops-schedule": { title: "Schedule", label: "weekly plan", color: "#34d399", icon: "CalendarCheck" },
-  "ops-sops": { title: "SOPs", label: "playbooks", color: "#34d399", icon: "ClipboardText" },
-  "ops-automate": { title: "Automate", label: "workflows", color: "#34d399", icon: "FlowArrow" },
-  // CTO · Web Pages last-level tasks (blue)
-  "web-landing": { title: "Landing", label: "page build", color: "#38bdf8", icon: "Browser" },
-  "web-funnel": { title: "Funnel", label: "opt-in flow", color: "#38bdf8", icon: "Funnel" },
-  "web-app": { title: "Tool UI", label: "app screen", color: "#38bdf8", icon: "Code" },
-  // CRO · Leads last-level tasks (amber)
-  "leads-scrape": { title: "Scrape", label: "find prospects", color: "#f59e0b", icon: "MagnifyingGlass" },
-  "leads-enrich": { title: "Enrich", label: "add data", color: "#f59e0b", icon: "Database" },
-  "leads-score": { title: "Score", label: "fit ranking", color: "#f59e0b", icon: "Target" },
-};
-
-/** Title/label/color/icon for any node id, real (org.ts) or display-only. */
+/** Title/label/color/icon for a node id. */
 function meta(id: string): { title: string; label: string; color: string; icon: string } {
-  return (ORG as Record<string, OrgNode | undefined>)[id] ?? EXTRA[id];
+  return (ORG as Record<string, OrgNode | undefined>)[id]!;
 }
 function colorOf(id: string): string {
   return meta(id).color;
 }
 
-/** normalised x/y (0..1) per node. */
+/**
+ * Normalised x/y (0..1) per node, spread to use the whole canvas: CEO on top,
+ * the CMO and Research (the shared specialist the CEO fires once for the team)
+ * balanced left/right beneath it, and Content on the mid-line.
+ */
 const LAYOUT: Lay[] = [
-  { id: "kronos", tier: 0, x: 0.5, y: 0.07 },
+  { id: "kronos", tier: 0, x: 0.5, y: 0.1 },
 
-  { id: "cmo", tier: 1, x: 0.13, y: 0.29 },
-  { id: "coo", tier: 1, x: 0.38, y: 0.29 },
-  { id: "cto", tier: 1, x: 0.62, y: 0.29 },
-  { id: "cro", tier: 1, x: 0.87, y: 0.29 },
+  { id: "cmo", tier: 1, x: 0.26, y: 0.34 },
+  // Research reports to the CEO, not the CMO — it runs once, up front, for the team.
+  { id: "research", tier: 1, x: 0.74, y: 0.34 },
 
-  // shared tool — hub centred above the agent row, fed by every department
-  { id: "research", tier: 2, x: 0.5, y: 0.43 },
-
-  // executive tool shelves — horizontal trios, staggered to keep the canvas legible
-  { id: "content", tier: 2, x: 0.08, y: 0.56 },
-  { id: "cmo-newsletter", tier: 2, x: 0.2, y: 0.56 },
-  { id: "cmo-profile", tier: 2, x: 0.32, y: 0.56 },
-
-  { id: "ops", tier: 2, x: 0.2, y: 0.74 },
-  { id: "coo-calendar", tier: 2, x: 0.32, y: 0.74 },
-  { id: "coo-systems", tier: 2, x: 0.44, y: 0.74 },
-
-  { id: "webpages", tier: 2, x: 0.56, y: 0.56 },
-  { id: "cto-automations", tier: 2, x: 0.69, y: 0.56 },
-  { id: "cto-apps", tier: 2, x: 0.82, y: 0.56 },
-
-  { id: "leads", tier: 2, x: 0.66, y: 0.74 },
-  { id: "cro-qualification", tier: 2, x: 0.78, y: 0.74 },
-  { id: "cro-outreach", tier: 2, x: 0.9, y: 0.74 },
-
-  // task icons — horizontal rows only at the final level
-  ...row(0.08, 0.66, ["text", "picture", "carousel"]),
-  ...row(0.2, 0.84, ["ops-schedule", "ops-sops", "ops-automate"]),
-  ...row(0.56, 0.66, ["web-landing", "web-funnel", "web-app"]),
-  ...row(0.66, 0.84, ["leads-scrape", "leads-enrich", "leads-score"]),
+  { id: "content", tier: 2, x: 0.5, y: 0.6 },
 ];
 
-/** lay out a tool's final task calls as an icon row hanging below it. */
-function row(x: number, y: number, ids: string[]): Lay[] {
-  const step = 0.054;
-  const mid = (ids.length - 1) / 2;
-  return ids.map((id, i) => ({ id, tier: 3 as Tier, x: x + (i - mid) * step, y }));
-}
+/** the six real content formats — the producing leaves, flex-laid along the bottom */
+const FORMATS = ["text", "picture", "carousel", "reels", "longform", "newsletter"];
 
-const ALL_IDS = LAYOUT.map((l) => l.id);
+const ALL_IDS = [...LAYOUT.map((l) => l.id), ...FORMATS];
 
 const EDGES: [string, string][] = [
   ["kronos", "cmo"],
-  ["kronos", "coo"],
-  ["kronos", "cto"],
-  ["kronos", "cro"],
-  // Research is a shared tool — every department head feeds it
+  ["kronos", "research"],
+  // the CMO consumes the shared research brief before Content writes
   ["cmo", "research"],
-  ["coo", "research"],
-  ["cto", "research"],
-  ["cro", "research"],
-  // each department head → its direct tools
   ["cmo", "content"],
-  ["cmo", "cmo-newsletter"],
-  ["cmo", "cmo-profile"],
-  ["coo", "ops"],
-  ["coo", "coo-calendar"],
-  ["coo", "coo-systems"],
-  ["cto", "webpages"],
-  ["cto", "cto-automations"],
-  ["cto", "cto-apps"],
-  ["cro", "leads"],
-  ["cro", "cro-qualification"],
-  ["cro", "cro-outreach"],
-  // direct tool → its task chips
+  // Content picks the format
   ["content", "text"],
   ["content", "picture"],
   ["content", "carousel"],
-  ["ops", "ops-schedule"],
-  ["ops", "ops-sops"],
-  ["ops", "ops-automate"],
-  ["webpages", "web-landing"],
-  ["webpages", "web-funnel"],
-  ["webpages", "web-app"],
-  ["leads", "leads-scrape"],
-  ["leads", "leads-enrich"],
-  ["leads", "leads-score"],
+  ["content", "reels"],
+  ["content", "longform"],
+  ["content", "newsletter"],
 ];
 
 const HAS_CHILDREN = new Set<string>(EDGES.map(([p]) => p));
@@ -180,7 +100,7 @@ const KIND_LABEL: Record<FeedEntry["kind"], string> = {
   report: "↑ REPORT",
 };
 
-type Box = { cx: number; left: number; top: number; bottom: number };
+type Box = { cx: number; left: number; right: number; top: number; bottom: number };
 
 /**
  * Orthogonal "smoothstep" edge (React Flow / n8n style): straight down from the
@@ -221,6 +141,7 @@ export default function OrgPyramid({ active, litPath, phases, feed, running }: P
       next[id] = {
         cx: r.left - cb.left + r.width / 2,
         left: r.left - cb.left,
+        right: r.right - cb.left,
         top: r.top - cb.top,
         bottom: r.top - cb.top + r.height,
       };
@@ -229,9 +150,19 @@ export default function OrgPyramid({ active, litPath, phases, feed, running }: P
     setSize({ w: cb.width, h: cb.height });
   }, []);
 
+  /**
+   * Inflate every node IN PLACE on large canvases so the tree fills the stage
+   * instead of floating in it: positions stay put (normalised anchors), the
+   * cards grow around their own centres. 1000×510 is the reference canvas the
+   * base px sizes were tuned on; below it nothing shrinks, above it everything
+   * scales up to +32%. The edges re-measure from the scaled rects, so the
+   * wires stay glued on.
+   */
+  const k = size.w && size.h ? Math.min(1.32, Math.max(1, Math.min(size.w / 1000, size.h / 510))) : 1;
+
   useLayoutEffect(() => {
     measure();
-  }, [measure]);
+  }, [measure, k]);
 
   useEffect(() => {
     const cont = containerRef.current;
@@ -245,32 +176,24 @@ export default function OrgPyramid({ active, litPath, phases, feed, running }: P
     };
   }, [measure]);
 
-  /* ---- newsletter remap ----
-   * The chart shows newsletters as a DEDICATED CMO node ("cmo-newsletter"), but the
-   * run/org models a newsletter as a Content format ("newsletter" under "content").
-   * Remap the org id onto the chart node (and drop Content from the lit path) so a
-   * newsletter lights up the Newsletter node, not Content. */
-  const isNewsletter = active === "newsletter" || litPath.includes("newsletter") || phases["newsletter"] != null;
-  const toChart = (id: string): string => (id === "newsletter" ? "cmo-newsletter" : id);
-  const chartLitPath = (isNewsletter ? litPath.filter((id) => id !== "content") : litPath).map(toChart);
-  const chartActive = active ? toChart(active) : active;
+  /* Every org id is a real node on this chart now (newsletter included, as a
+   * Content format), so the chart path maps 1:1 onto the org path. */
+  const chartLitPath = litPath;
+  const chartActive = active;
 
-  /* ---- lit / done / active sets (tools are real nodes now — no folding) ---- */
+  /* ---- lit / done / active sets ---- */
   const engaged = new Set<string>(chartLitPath);
   const doneSet = new Set<string>();
   for (const [id, ph] of Object.entries(phases) as [JarvisNodeId, NodePhase][]) {
-    if (isNewsletter && id === "content") continue; // a newsletter doesn't run through Content here
-    const cid = toChart(id);
-    if (ph === "working" || ph === "done") engaged.add(cid);
-    if (ph === "done") doneSet.add(cid);
+    if (ph === "working" || ph === "done") engaged.add(id);
+    if (ph === "done") doneSet.add(id);
   }
   if (chartActive) engaged.add(chartActive);
 
   /* ---- latest mission-feed line per node, for its notification pane ---- */
   const paneByNode: Record<string, FeedEntry> = {};
   for (const f of feed) {
-    if (isNewsletter && f.node === "content") continue;
-    paneByNode[toChart(f.node)] = f;
+    paneByNode[f.node] = f;
   }
 
   /**
@@ -303,8 +226,8 @@ export default function OrgPyramid({ active, litPath, phases, feed, running }: P
         style={{
           backgroundImage: "radial-gradient(rgba(255,255,255,0.07) 1px, transparent 1px)",
           backgroundSize: "22px 22px",
-          maskImage: "radial-gradient(120% 100% at 50% 45%, #000 35%, transparent 90%)",
-          WebkitMaskImage: "radial-gradient(120% 100% at 50% 45%, #000 35%, transparent 90%)",
+          maskImage: "radial-gradient(135% 115% at 50% 45%, #000 45%, transparent 95%)",
+          WebkitMaskImage: "radial-gradient(135% 115% at 50% 45%, #000 45%, transparent 95%)",
         }}
       />
 
@@ -331,7 +254,13 @@ export default function OrgPyramid({ active, litPath, phases, feed, running }: P
           // shared lines dark for the heads that didn't actually run it.
           const lit = engaged.has(p) && engaged.has(c);
           const col = colorOf(c);
-          const d = stepPath(a.cx, a.bottom, b.cx, b.top);
+          // CMO ↔ Research sit on the same tier: their wire runs dashed from
+          // card side to card side (a peer exchange, not a chain of command).
+          const lateral = p === "cmo" && c === "research";
+          const d = lateral
+            ? `M ${a.right + 5} ${(a.top + a.bottom) / 2} L ${b.left - 5} ${(b.top + b.bottom) / 2}`
+            : stepPath(a.cx, a.bottom, b.cx, b.top);
+          const dash = lateral ? "5 6" : undefined;
           // beam only while running and only along the active spine; direction
           // follows the activity (down to delegate, up to report toward the CEO)
           const beaming = running && spine.has(p) && spine.has(c);
@@ -344,13 +273,14 @@ export default function OrgPyramid({ active, litPath, phases, feed, running }: P
                 stroke="rgba(255,255,255,0.13)"
                 strokeWidth={1.5}
                 strokeLinejoin="round"
+                strokeDasharray={dash}
                 opacity={focusMode && !lit ? 0.16 : 1}
               />
               {lit && (
                 <>
                   {/* soft ambient glow + calm core wire (stays lit when idle/done) */}
-                  <path d={d} fill="none" stroke={col} strokeWidth={2.5} opacity={0.2} filter="url(#wf-glow)" />
-                  <path d={d} fill="none" stroke={col} strokeWidth={1.3} opacity={0.72} />
+                  <path d={d} fill="none" stroke={col} strokeWidth={2.5} opacity={0.2} filter="url(#wf-glow)" strokeDasharray={dash} />
+                  <path d={d} fill="none" stroke={col} strokeWidth={1.3} opacity={0.72} strokeDasharray={dash} />
                 </>
               )}
               {beaming && (
@@ -405,6 +335,9 @@ export default function OrgPyramid({ active, litPath, phases, feed, running }: P
             <g key={`h-${id}`}>
               {HAS_PARENT.has(id) && dot(p.cx, p.top, `t-${id}`)}
               {HAS_CHILDREN.has(id) && dot(p.cx, p.bottom, `b-${id}`)}
+              {/* side handles for the dashed CMO ↔ Research exchange wire */}
+              {id === "cmo" && dot(p.right, cy, `r-${id}`)}
+              {id === "research" && dot(p.left, cy, `l-${id}`)}
             </g>
           );
         })}
@@ -418,7 +351,7 @@ export default function OrgPyramid({ active, litPath, phases, feed, running }: P
         style={{ opacity: focusMode ? 0.5 : 0 }}
       />
 
-      {/* ── nodes ── */}
+      {/* ── nodes (tiers 0–2, placed analytically) ── */}
       {LAYOUT.map((l) => {
         const on = engaged.has(l.id);
         const dimmed = focusMode && !on;
@@ -435,7 +368,7 @@ export default function OrgPyramid({ active, litPath, phases, feed, running }: P
             style={{
               left: `${l.x * 100}%`,
               top: `${l.y * 100}%`,
-              transform: "translate(-50%,-50%)",
+              transform: `translate(-50%,-50%) scale(${k})`,
               opacity: dimmed ? 0.9 : 1,
               filter: dimmed ? "blur(0.35px) grayscale(0.12)" : undefined,
               // lit nodes rise above the focus veil while inactive nodes sink back
@@ -450,11 +383,54 @@ export default function OrgPyramid({ active, litPath, phases, feed, running }: P
               active={chartActive === l.id}
               running={running}
               entry={paneByNode[l.id]}
+              paneSide={l.id === "kronos" ? "right" : undefined}
               refCb={(el) => (nodeRefs.current[l.id] = el)}
             />
           </div>
         );
       })}
+
+      {/* ── format strip (tier 3) — flexbox keeps the cards natural-width and
+             evenly spread; the SVG edges connect to their measured rects ── */}
+      <div className="absolute inset-x-0" style={{ top: "86%", transform: `translateY(-50%) scale(${k})` }}>
+        <div className="flex items-stretch justify-center gap-[clamp(10px,3.5%,56px)] px-1">
+          {FORMATS.map((id, i) => {
+            const on = engaged.has(id);
+            const dimmed = focusMode && !on;
+            return (
+              <div
+                key={id}
+                data-jarvis-node={id}
+                data-jarvis-tier={3}
+                data-jarvis-lit={on ? "true" : "false"}
+                className={cn(
+                  "relative transition-[filter,opacity,transform] duration-500",
+                  focusMode && on && "drop-shadow-[0_0_18px_rgba(34,211,238,0.22)]",
+                )}
+                style={{
+                  opacity: dimmed ? 0.9 : 1,
+                  filter: dimmed ? "blur(0.35px) grayscale(0.12)" : undefined,
+                  zIndex: paneByNode[id] ? 60 : focusMode && on ? 40 : 10,
+                }}
+              >
+                <WorkflowNode
+                  id={id}
+                  tier={3}
+                  on={on}
+                  done={doneSet.has(id)}
+                  active={chartActive === id}
+                  running={running}
+                  entry={paneByNode[id]}
+                  // panes flip toward the canvas centre so the outermost cards
+                  // never push theirs off the edge
+                  paneSide={i < FORMATS.length / 2 ? "right" : "left"}
+                  refCb={(el) => (nodeRefs.current[id] = el)}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </div>
 
       <style jsx global>{`
         @keyframes wf-pulse {
@@ -494,21 +470,22 @@ type NodeProps = {
   active: boolean;
   running: boolean;
   entry?: FeedEntry;
+  /** mount the notification pane beside the node instead of below it */
+  paneSide?: "left" | "right";
   refCb: (el: HTMLDivElement | null) => void;
 };
 
 function WorkflowNode(props: NodeProps) {
-  const { tier, entry, active, id } = props;
+  const { tier, entry, active, id, paneSide } = props;
   const col = colorOf(id);
-  const card =
-    tier === 0 ? <CeoCard {...props} /> : tier === 1 ? <DeptCard {...props} /> : tier === 2 ? <AgentCard {...props} /> : <ToolCard {...props} />;
+  const card = tier === 0 ? <CeoCard {...props} /> : tier === 3 ? <FormatCard {...props} /> : <DeptCard {...props} />;
 
   return (
     <div className="relative flex flex-col items-center">
       {card}
       <AnimatePresence>
         {entry && (
-          <NotificationPane key="pane" entry={entry} color={col} active={active} compact={tier === 3} side={tier === 3 || id === "kronos"} />
+          <NotificationPane key="pane" entry={entry} color={col} active={active} compact={tier === 3} side={paneSide} />
         )}
       </AnimatePresence>
     </div>
@@ -622,70 +599,11 @@ function DeptCard({ id, on, done, active, running, refCb }: NodeProps) {
 }
 
 /**
- * Tier 2 — direct capability node. Research is the shared tool: wider, badged,
- * fed by every department head above it.
+ * Tier 3 — content-format card. A real labelled card (icon chip over the format
+ * name), matching the department modules; the label collapses on narrow screens
+ * so six still fit across.
  */
-function AgentCard({ id, on, done, active, running, refCb }: NodeProps) {
-  const n = meta(id);
-  const col = n.color;
-  const live = active && running;
-  const shared = id === "research";
-  return (
-    <motion.div
-      ref={refCb}
-      animate={{ scale: active ? 1.05 : 1 }}
-      transition={{ type: "spring", stiffness: 300, damping: 22 }}
-      className={cn(
-        "relative flex items-center gap-2.5 rounded-[14px] border px-3 py-3 backdrop-blur-md",
-        shared ? "w-[196px]" : "w-[122px]",
-        active && "moving-border",
-      )}
-      style={{
-        borderColor: on ? `${col}9e` : "rgba(255,255,255,0.08)",
-        background: on ? `linear-gradient(160deg, ${col}1f, ${col}06 80%)` : "rgba(255,255,255,0.015)",
-        boxShadow: live ? `0 0 20px ${col}55` : "none",
-      }}
-    >
-      <span
-        className={cn("grid shrink-0 place-items-center rounded-full", shared ? "h-9 w-9" : "h-[34px] w-[34px]")}
-        style={{
-          background: on ? `${col}2e` : "rgba(255,255,255,0.05)",
-          color: on ? col : "rgba(255,255,255,0.42)",
-          border: `1px solid ${on ? `${col}88` : "rgba(255,255,255,0.12)"}`,
-          boxShadow: live ? `0 0 10px ${col}88` : "none",
-        }}
-      >
-        <JarvisIcon name={n.icon} size={shared ? 17 : 16} weight={on ? "fill" : "regular"} />
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col leading-tight">
-        <span className="flex items-center gap-1.5">
-          <span className={cn("truncate font-semibold tracking-tight", shared ? "text-[13.5px]" : "text-[12.5px]")} style={{ color: on ? "#fff" : "rgba(255,255,255,0.6)" }}>
-            {n.title}
-          </span>
-          {shared && (
-            <span
-              className="shrink-0 rounded-[5px] px-1 py-px text-[7.5px] font-bold uppercase tracking-[0.1em]"
-              style={{
-                background: on ? `${col}26` : "rgba(255,255,255,0.06)",
-                color: on ? `${col}f0` : "rgba(255,255,255,0.4)",
-                border: `1px solid ${on ? `${col}55` : "rgba(255,255,255,0.12)"}`,
-              }}
-            >
-              Shared
-            </span>
-          )}
-        </span>
-        <span className="truncate text-[9.5px]" style={{ color: on ? `${col}c4` : "rgba(255,255,255,0.3)" }}>
-          {n.label}
-        </span>
-      </span>
-      <StatusDot on={on} done={done} active={active} running={running} col={col} />
-    </motion.div>
-  );
-}
-
-/** Tier 3 — task-call node. Icon-only final action under a direct tool. */
-function ToolCard({ id, on, done, active, running, refCb }: NodeProps) {
+function FormatCard({ id, on, done, active, running, refCb }: NodeProps) {
   const n = meta(id);
   const col = n.color;
   const live = active && running;
@@ -693,28 +611,33 @@ function ToolCard({ id, on, done, active, running, refCb }: NodeProps) {
     <motion.div
       ref={refCb}
       title={`${n.title} · ${n.label}`}
-      animate={{ scale: active ? 1.08 : 1 }}
+      animate={{ scale: active ? 1.06 : 1 }}
       transition={{ type: "spring", stiffness: 320, damping: 20 }}
-      className="relative grid h-10 w-10 place-items-center rounded-lg backdrop-blur-md"
+      className="relative flex flex-col items-center gap-1.5 rounded-xl border px-2 pb-2 pt-2.5 backdrop-blur-md xl:min-w-[96px] xl:px-3"
       style={{
-        border: `1px ${on ? "solid" : "dashed"} ${on ? `${col}b0` : "rgba(255,255,255,0.16)"}`,
-        background: on ? `linear-gradient(160deg, ${col}26, rgba(7,11,20,0.7))` : "rgba(255,255,255,0.012)",
-        boxShadow: live ? `0 0 18px ${col}66` : "none",
+        borderColor: on ? `${col}b0` : "rgba(255,255,255,0.1)",
+        background: on ? `linear-gradient(165deg, ${col}22, rgba(7,11,20,0.72))` : "rgba(255,255,255,0.02)",
+        boxShadow: live ? `0 0 20px ${col}5e` : on ? `0 0 10px ${col}26` : "none",
       }}
     >
       <span
-        className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px]"
-        style={{ background: on ? `${col}30` : "rgba(255,255,255,0.05)", color: on ? col : "rgba(255,255,255,0.45)" }}
+        className="grid h-8 w-8 shrink-0 place-items-center rounded-lg"
+        style={{
+          background: on ? `${col}2e` : "rgba(255,255,255,0.05)",
+          color: on ? col : "rgba(255,255,255,0.5)",
+          boxShadow: live ? `0 0 10px ${col}88` : "none",
+        }}
       >
-        <JarvisIcon name={n.icon} size={15} weight={on ? "fill" : "regular"} />
+        <JarvisIcon name={n.icon} size={16} weight={on ? "fill" : "regular"} />
+      </span>
+      <span
+        className="hidden max-w-[104px] truncate text-[10.5px] font-semibold tracking-tight xl:block"
+        style={{ color: on ? "#fff" : "rgba(255,255,255,0.55)" }}
+      >
+        {n.title}
       </span>
       <span className="sr-only">{`${n.title}: ${n.label}`}</span>
-      {(live || done) && (
-        <span
-          className={cn("absolute -right-1 -top-1 h-2 w-2 rounded-full", live && "animate-pulse")}
-          style={{ background: col, boxShadow: `0 0 6px ${col}` }}
-        />
-      )}
+      <StatusDot on={on} done={done} active={active} running={running} col={col} />
     </motion.div>
   );
 }
@@ -733,7 +656,7 @@ function NotificationPane({
   active: boolean;
   compact: boolean;
   /** stacked tier-3 chips put their pane to the side so it can't cover the chip below */
-  side?: boolean;
+  side?: "left" | "right";
 }) {
   const fmt = isFormat(entry.node) ? node(entry.node).title : null;
   const body = (
@@ -763,17 +686,21 @@ function NotificationPane({
   );
 
   if (side) {
+    const toRight = side === "right";
     return (
       <motion.div
-        initial={{ opacity: 0, x: -6, scale: 0.92 }}
+        initial={{ opacity: 0, x: toRight ? -6 : 6, scale: 0.92 }}
         animate={{ opacity: 1, x: 0, scale: 1 }}
         exit={{ opacity: 0, scale: 0.92 }}
         transition={{ type: "spring", stiffness: 320, damping: 24 }}
-        className="absolute left-[calc(100%+12px)] top-1/2 z-20 -translate-y-1/2"
+        className={cn(
+          "absolute top-1/2 z-20 -translate-y-1/2",
+          toRight ? "left-[calc(100%+12px)]" : "right-[calc(100%+12px)]",
+        )}
         style={{ width: 150 }}
       >
         <span
-          className="absolute -left-[12px] top-1/2 h-px w-[12px] -translate-y-1/2"
+          className={cn("absolute top-1/2 h-px w-[12px] -translate-y-1/2", toRight ? "-left-[12px]" : "-right-[12px]")}
           style={{ background: active ? color : "rgba(255,255,255,0.18)" }}
           aria-hidden
         />

@@ -6,23 +6,18 @@
  * them to drive the orb, the org chart, the live agent feed, and the final
  * artifact. Shared by server (emit) and client (render) so they never drift.
  *
- * The hierarchy mirrors the architecture doc: You -> KRONOS (AI CEO, reads every
- * document) -> department heads (CMO/COO/CTO/CRO) -> specialist sub-agents.
+ * The hierarchy: You -> KRONOS (AI CEO, reads every document) -> the CMO ->
+ * specialist sub-agents. This build is marketing-only, so the CMO is the only
+ * department head.
  */
 
 export type JarvisNodeId =
   | "kronos"
-  // department heads
+  // department head (marketing-only build)
   | "cmo"
-  | "coo"
-  | "cto"
-  | "cro"
   // specialists
   | "research"
   | "content"
-  | "leads"
-  | "webpages"
-  | "ops"
   // content formats (under Content)
   | "text"
   | "picture"
@@ -70,9 +65,8 @@ export type NewsletterArtifactData = {
   grounding: string[];
 };
 
-/** One scraped prospect, flattened for the deliverable sheet. */
+/** Kept for optional CLI lead-scrape skills — not shown on the marketing org chart. */
 export type LeadEmailStatus = "valid" | "invalid" | "catch-all" | "disposable" | "unknown";
-
 export type LeadRow = {
   name: string;
   title: string;
@@ -80,41 +74,28 @@ export type LeadRow = {
   location: string;
   linkedinUrl: string;
   email: string;
-  /* ---- enrichment (optional; present after the enrichment protocol runs) ---- */
   emailStatus?: LeadEmailStatus;
   headline?: string;
   about?: string;
   skills?: string[];
-  /** one-line "latest post" angle for personalized outreach */
   recentActivity?: string;
 };
-
-/** The Leads deliverable: the targeting plan + the real scraped prospect sheet. */
 export type LeadsArtifactData = {
   title: string;
-  /** one-line ICP summary */
   icp: string;
-  /** the search criteria, in plain English */
   criteria: string[];
-  /** in/out qualification rules grounded in the ICP */
   qualification: string[];
   leads: LeadRow[];
   requested: number;
   returned: number;
   withEmail: number;
-  /* ---- enrichment summary (optional) ---- */
   enriched?: number;
   verifiedEmail?: number;
   withActivity?: number;
-  /* ---- live streaming state ---- */
-  /** "scraping" → rows arriving; "enriching" → enrichment filling in; "done" → final */
   phase?: "scraping" | "enriching" | "done";
-  /** true when the rows are mock test data (LEADS_TEST_MODE) */
   testMode?: boolean;
-  /** false when APIFY_TOKEN is missing — the plan is shown, no live people pulled */
   configured: boolean;
   note: string;
-  /** doc titles the targeting was grounded in */
   grounding: string[];
 };
 
@@ -154,8 +135,8 @@ export type JarvisEvent =
     }
   /** The finished deliverable. */
   | { type: "artifact"; kind: "carousel"; data: CarouselArtifactData; at: number }
-  | { type: "artifact"; kind: "leads"; data: LeadsArtifactData; at: number }
   | { type: "artifact"; kind: "newsletter"; data: NewsletterArtifactData; at: number }
+  | { type: "artifact"; kind: "leads"; data: LeadsArtifactData; at: number }
   /** A rich, block-formatted report for the response panel (non-carousel runs). */
   | { type: "response"; format: "blocks"; markdown: string; at: number }
   | { type: "run.complete"; at: number }

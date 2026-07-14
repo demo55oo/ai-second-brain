@@ -187,6 +187,14 @@ export default function BrainPage() {
                 ))}
               </div>
             )}
+            {hasVault && (
+              <Link
+                href="/brain/graph"
+                className="mt-4 flex items-center justify-center gap-2 rounded-xl border border-violet-300/30 bg-violet-400/[0.08] px-4 py-2.5 text-[12.5px] font-medium text-violet-100 transition hover:border-violet-300/60 hover:bg-violet-400/[0.16] hover:text-white"
+              >
+                View the knowledge graph
+              </Link>
+            )}
           </Panel>
         </Rise>
 

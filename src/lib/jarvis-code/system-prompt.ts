@@ -17,7 +17,7 @@ import { NO_EMDASH_RULE } from "@/lib/sanitize";
 
 export const JARVIS_CODE_SKILLS = [
   { id: "search-brain", node: "research", when: "grounding any answer in the founder's own knowledge, ICP, positioning, voice, or past work" },
-  { id: "scrape-leads", node: "leads", when: "the user wants prospects / a lead list / an outreach list" },
+  { id: "scrape-leads", node: "research", when: "the user wants prospects / a lead list / an outreach list" },
   { id: "build-carousel", node: "carousel", when: "the user wants a carousel / swipe deck / slide deck / cheatsheet" },
   { id: "write-newsletter", node: "newsletter", when: "the user wants an email newsletter / broadcast" },
   { id: "write-post", node: "text", when: "the user wants a single text post (LinkedIn / X / thread)" },

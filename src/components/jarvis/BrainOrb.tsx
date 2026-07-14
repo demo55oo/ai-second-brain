@@ -14,7 +14,7 @@ const BrainGraph = dynamic(() => import("@/components/BrainGraph"), { ssr: false
 let cachedGraph: GraphData | null = null;
 
 /**
- * The founder's second-brain graph (from /api/brain → Supabase vault) rendered as the
+ * The founder's second-brain graph (from Supabase via /api/brain) rendered as the
  * idle backdrop of the /jarvis response panel — replaces the old KronosOrb.
  */
 export default function BrainOrb() {

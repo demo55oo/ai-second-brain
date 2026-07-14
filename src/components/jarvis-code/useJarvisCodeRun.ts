@@ -133,9 +133,10 @@ function reduce(s: JarvisCodeRunState, e: JarvisCodeEvent, nextId: () => number)
         { node: e.from, kind: "report", text: `${node(e.from).title} → ${node(e.to).title}: ${e.summary}`, at: e.at },
       );
     case "artifact":
-      if (e.kind === "leads") return bump({ leads: e.data });
       if (e.kind === "newsletter") return bump({ newsletter: e.data });
-      return bump({ artifact: e.data });
+      if (e.kind === "carousel") return bump({ artifact: e.data });
+      // leads / other kinds: marketing org has no leads panel — ignore visual
+      return s;
     case "response":
       return bump({ response: e.markdown });
     case "run.complete":

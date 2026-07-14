@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 
 /**
  * The Iron-Man HUD dressing: corner brackets, a vignette + grid, and a live
- * clock. Pages can mount utility actions (nav chips, sound, settings) into the
- * top rail via `actions` so the stage below stays clear.
+ * clock. Pure chrome — it frames the live dashboard and sells the "mission
+ * control" feel without carrying state. Pages can mount their utility actions
+ * (nav chips, sound, settings) into the top rail via `actions` so the stage
+ * below stays clear.
  */
 
 export default function HudFrame({ children, actions }: { children: React.ReactNode; actions?: React.ReactNode }) {
@@ -25,7 +27,9 @@ export default function HudFrame({ children, actions }: { children: React.ReactN
 
   return (
     <div className="relative h-full w-full overflow-hidden">
+      {/* deep field background */}
       <div className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(120% 90% at 50% 35%, #060a14 0%, #02040a 60%, #010207 100%)" }} />
+      {/* faint grid */}
       <div
         className="pointer-events-none absolute inset-0 opacity-[0.25]"
         style={{
@@ -37,6 +41,7 @@ export default function HudFrame({ children, actions }: { children: React.ReactN
         }}
       />
 
+      {/* corner brackets */}
       {([
         "left-3 top-3 border-l border-t",
         "right-3 top-3 border-r border-t",
@@ -46,6 +51,7 @@ export default function HudFrame({ children, actions }: { children: React.ReactN
         <div key={c} className={`pointer-events-none absolute h-6 w-6 border-cyan-300/40 ${c}`} />
       ))}
 
+      {/* top rail — identity left, utilities + time right */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-between gap-3 px-6 py-2.5">
         <div className="flex items-baseline gap-2.5">
           <span className="text-[15px] font-bold tracking-[0.3em] text-cyan-200">SECOND BRAIN</span>
@@ -64,6 +70,7 @@ export default function HudFrame({ children, actions }: { children: React.ReactN
         </div>
       </div>
 
+      {/* content */}
       <div className="relative z-10 h-full w-full">{children}</div>
     </div>
   );

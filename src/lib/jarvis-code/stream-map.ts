@@ -17,7 +17,7 @@ import type { JarvisCodeEvent } from "./events";
 /** which org node a skill lights up */
 const SKILL_NODE: Record<string, JarvisNodeId> = {
   "search-brain": "research",
-  "scrape-leads": "leads",
+  "scrape-leads": "research",
   "build-carousel": "carousel",
   "write-newsletter": "newsletter",
   "write-post": "text",
@@ -25,7 +25,7 @@ const SKILL_NODE: Record<string, JarvisNodeId> = {
 
 /** which org node an artifact kind belongs to */
 const ARTIFACT_NODE: Record<string, JarvisNodeId> = {
-  leads: "leads",
+  leads: "research",
   carousel: "carousel",
   newsletter: "newsletter",
 };

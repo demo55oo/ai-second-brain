@@ -1,10 +1,13 @@
 /**
- * Pulse — the org chart. The CEO sits at the top and reads every document. It
- * never does the work itself: it routes each instruction to a department head
- * (CMO / COO / CTO / CRO), who fires the right specialist sub-agents. Content is
- * itself a small team: it picks a FORMAT (text / picture / carousel / reels /
- * long-form) and the matching producer writes it. The user only ever talks to
- * the CEO.
+ * Marketing OS — the org chart. The CEO sits at the top and reads every
+ * document. It never does the work itself: it routes each instruction to the CMO,
+ * who fires the right specialist sub-agents. Content is itself a small team: it
+ * picks a FORMAT (text / picture / carousel / reels / long-form / newsletter) and
+ * the matching producer writes it. The user only ever talks to the CEO.
+ *
+ * SCOPE: this build is marketing-only. The org is CEO -> CMO, plus Research as a
+ * shared specialist reporting to the CEO. There is deliberately no COO / CTO /
+ * CRO — every instruction lands on the CMO.
  *
  * This is the static topology + the routing brain's option space. The live run
  * (`/api/jarvis/run`) walks this tree and emits jarvis-events as it goes.
@@ -43,20 +46,14 @@ export const ORG: Record<JarvisNodeId, OrgNode> = {
     parent: null,
   },
 
-  /* ---- department heads ---- */
+  /* ---- department head (marketing-only build: the CMO is the whole C-suite) ---- */
   cmo: { id: "cmo", kind: "department", title: "CMO", label: "Marketing", color: "#a78bfa", icon: "Megaphone", parent: "kronos" },
-  coo: { id: "coo", kind: "department", title: "COO", label: "Operations", color: "#34d399", icon: "Gear", parent: "kronos" },
-  cto: { id: "cto", kind: "department", title: "CTO", label: "Tech & build", color: "#38bdf8", icon: "Cpu", parent: "kronos" },
-  cro: { id: "cro", kind: "department", title: "CRO", label: "Sales & leads", color: "#f59e0b", icon: "Target", parent: "kronos" },
 
   /* ---- specialists ---- */
-  // Research is a SHARED specialist: it reports to the CEO, not to one
-  // department, and any department can fire it first for a market/angle read.
+  // Research is a SHARED specialist: it reports to the CEO, not to the CMO, and
+  // runs once up front for a market/angle read before the content team writes.
   research: { id: "research", kind: "specialist", title: "Research", label: "Trends & angles", color: "#22d3ee", icon: "Binoculars", parent: "kronos", agentKey: "research" },
   content: { id: "content", kind: "specialist", title: "Content", label: "Posts in your voice", color: "#a78bfa", icon: "PenNib", parent: "cmo", agentKey: "content" },
-  leads: { id: "leads", kind: "specialist", title: "Leads", label: "Prospect lists", color: "#f59e0b", icon: "UsersThree", parent: "cro", agentKey: "sales" },
-  webpages: { id: "webpages", kind: "specialist", title: "Web pages", label: "Landing pages", color: "#38bdf8", icon: "Browser", parent: "cto", agentKey: "marketing" },
-  ops: { id: "ops", kind: "specialist", title: "Ops", label: "Schedules & systems", color: "#34d399", icon: "ListChecks", parent: "coo", agentKey: "marketing" },
 
   /* ---- content formats (under Content) ---- */
   text: { id: "text", kind: "format", title: "Text", label: "Text posts", color: "#a78bfa", icon: "Article", parent: "content", agentKey: "content" },
@@ -76,8 +73,8 @@ export function isFormat(id: JarvisNodeId): boolean {
 }
 
 /**
- * Shared specialists are not owned by a single department — any department head
- * can fire them. Research is shared across CMO / COO / CTO / CRO.
+ * Shared specialists are not owned by a department — the CEO fires them once for
+ * the whole team before delegating. Research is the only one.
  */
 export const SHARED_SPECIALISTS: JarvisNodeId[] = ["research"];
 export function isShared(id: JarvisNodeId): boolean {
@@ -88,7 +85,7 @@ export function node(id: JarvisNodeId): OrgNode {
   return ORG[id];
 }
 
-/** Direct children of a node (departments under CEO, specialists under a dept, formats under Content). */
+/** Direct children of a node (the CMO under the CEO, specialists under a dept, formats under Content). */
 export function childrenOf(id: JarvisNodeId): OrgNode[] {
   return ALL_NODES.filter((n) => n.parent === id);
 }
@@ -114,7 +111,7 @@ export function chainToCeo(id: JarvisNodeId): JarvisNodeId[] {
 /* --------------------------- routing --------------------------- */
 
 export type TeamPlan = {
-  /** one entry per department head assigned — they run in parallel as a team */
+  /** one entry per department head assigned — marketing-only, so always the CMO */
   assignments: RouteAssignment[];
   /** shared specialists (e.g. research) that run ONCE first for the whole team */
   shared: JarvisNodeId[];
@@ -123,62 +120,28 @@ export type TeamPlan = {
 
 /**
  * Deterministic keyword router — the fast, always-available fallback when the
- * LLM router is unavailable or returns something invalid. It can assign MULTIPLE
- * departments when an instruction mentions several kinds of work.
+ * LLM router is unavailable or returns something invalid. Marketing-only: every
+ * instruction routes to the CMO, so the only real decision is which content FORMAT.
  */
 export function keywordRoute(instruction: string): TeamPlan {
   const t = instruction.toLowerCase();
   const has = (...words: string[]) => words.some((w) => t.includes(w));
 
-  const assignments: RouteAssignment[] = [];
-  const reasons: string[] = [];
-  let wantsResearch = false;
-
-  // CMO — one content format
-  let format: JarvisNodeId | null = null;
+  let format: JarvisNodeId = "text";
   if (has("newsletter", "email newsletter", "broadcast", "email blast", "email campaign", "weekly email")) format = "newsletter";
   else if (has("carousel", "slides", "slide deck", "swipe", "cheatsheet", "cheat sheet", "listicle")) format = "carousel";
   else if (has("picture", "image post", "graphic", "single image")) format = "picture";
   else if (has("reel", "short form", "short-form", "tiktok")) format = "reels";
   else if (has("long form", "long-form", "youtube", "video script", "vsl")) format = "longform";
-  else if (has("text post", "linkedin post", "tweet", "thread")) format = "text";
-  if (format) {
-    assignments.push({ department: "cmo", plan: [format] });
-    wantsResearch = true;
-    reasons.push(`Content writes the ${node(format).title.toLowerCase()}`);
-  }
 
-  // CRO — leads
-  if (has("lead", "prospect", "icp", "outreach list", "sales nav", "scrape")) {
-    assignments.push({ department: "cro", plan: ["leads"] });
-    wantsResearch = true; // a market read sharpens the targeting
-    reasons.push("the CRO scrapes the prospect list");
-  }
-  // CTO — landing page
-  if (has("landing", "web page", "webpage", "website", "site", "funnel")) {
-    assignments.push({ department: "cto", plan: ["webpages"] });
-    wantsResearch = true; // research informs the page's angle + proof
-    reasons.push("the CTO builds the landing page");
-  }
-  // COO — operations
-  if (has("schedule", "plan my week", "system", "operations", "calendar", "sop", "workflow")) {
-    assignments.push({ department: "coo", plan: ["ops"] });
-    reasons.push("the COO sets up the operating plan");
-  }
-
-  if (assignments.length === 0) {
-    // default: a text post in their voice
-    assignments.push({ department: "cmo", plan: ["text"] });
-    wantsResearch = true;
-    reasons.push("Content writes a post in your voice");
-  }
-
-  const rationale =
-    reasons.length > 1
-      ? `Open-ended — the team splits it: ${reasons.join("; ")}.`
-      : `${reasons[0][0].toUpperCase()}${reasons[0].slice(1)}.`;
-
-  return { assignments, shared: wantsResearch ? ["research"] : [], rationale };
+  return {
+    assignments: [{ department: "cmo", plan: [format] }],
+    shared: ["research"],
+    rationale:
+      format === "text"
+        ? "Content writes a post in your voice."
+        : `Content writes the ${node(format).title.toLowerCase()}.`,
+  };
 }
 
 /** The valid option space handed to the LLM router (so it can only pick real producing leaves). */

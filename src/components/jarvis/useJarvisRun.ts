@@ -4,7 +4,6 @@ import { useCallback, useRef, useState } from "react";
 import {
   drainEvents,
   type CarouselArtifactData,
-  type LeadsArtifactData,
   type NewsletterArtifactData,
   type JarvisEvent,
   type JarvisNodeId,
@@ -91,8 +90,6 @@ export type JarvisRunState = {
   litPath: JarvisNodeId[];
   feed: FeedEntry[];
   artifact?: CarouselArtifactData;
-  /** the scraped prospect deliverable (CRO / leads runs) */
-  leads?: LeadsArtifactData;
   /** a complete on-brand HTML newsletter (light-themed email) */
   newsletter?: NewsletterArtifactData;
   /** a rich block-formatted report (markdown w/ block tokens) for non-carousel runs */
@@ -167,7 +164,6 @@ function reduce(s: JarvisRunState, e: JarvisEvent, nextId: () => number): Jarvis
         { node: e.from, kind: "report", text: `${node(e.from).title} → ${node(e.to).title}: ${e.summary}`, at: e.at }
       );
     case "artifact":
-      if (e.kind === "leads") return bump({ leads: e.data });
       if (e.kind === "newsletter") return bump({ newsletter: e.data });
       return bump({ artifact: e.data });
     case "response":
