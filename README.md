@@ -40,9 +40,10 @@ After deploy, open **Environment variables** and paste `AI_GATEWAY_API_KEY` **or
 | `AI_GATEWAY_API_KEY` **or** `ANTHROPIC_API_KEY` | yes | Chat answers |
 | `AI_MODEL` | optional | Defaults internally; e.g. `anthropic/claude-sonnet-4-6` |
 | `BRAIN_ENGINE` | no | Defaults to `api` — do not set unless you want `cli` locally |
-| `NEXT_PUBLIC_SUPABASE_URL` | optional | Cloud vault upload only |
+| `BLOB_READ_WRITE_TOKEN` | for cloud uploads | Vercel Blob — upload markdown on Vercel/Netlify **without Supabase** |
+| `NEXT_PUBLIC_SUPABASE_URL` | optional | Only if you prefer Supabase vault |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | optional | Only with Supabase |
-| `SUPABASE_SERVICE_ROLE_KEY` | optional | Only for cloud vault ingest |
+| `SUPABASE_SERVICE_ROLE_KEY` | optional | Only with Supabase |
 | `OPENAI_API_KEY` | optional | Embeddings if using Supabase vault without gateway |
 | `APP_URL` | optional | Public site URL |
 

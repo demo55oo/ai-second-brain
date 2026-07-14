@@ -47,7 +47,7 @@ export async function POST(req: Request) {
         {
           ok: false,
           error:
-            "Cloud host cannot save uploads without Supabase. Chat still works. Add Supabase keys for persistent vault uploads, or run locally.",
+            "This cloud host can't write to disk. Add BLOB_READ_WRITE_TOKEN (Vercel → Storage → Blob → connect to project) — no Supabase needed. Or run locally.",
         },
         { status: 503 }
       );
@@ -116,7 +116,7 @@ export async function POST(req: Request) {
     const owner = await listOwnerNotes();
     return NextResponse.json({
       ok: true,
-      mode: "local",
+      mode: result.backend,
       uploaded: notes.length,
       replaced: true,
       documents: result.documents,

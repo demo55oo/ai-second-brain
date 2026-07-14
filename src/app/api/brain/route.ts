@@ -5,6 +5,7 @@ import {
   hasOwnerKnowledge,
   listOwnerNotes,
   ownerKnowledgeWritable,
+  ownerUploadBackend,
 } from "@/lib/owner-knowledge";
 
 export const runtime = "nodejs";
@@ -12,13 +13,13 @@ export const maxDuration = 30;
 
 /**
  * GET /api/brain — status + graph for /brain page and BrainOrb.
- * Chat never requires Supabase; uploads use Supabase when set, else local owner folder.
  */
 export async function GET() {
   try {
     const ownerLocal = await hasOwnerKnowledge();
     const ownerNotes = ownerLocal ? await listOwnerNotes() : [];
     const supabaseOk = vaultBackendReady();
+    const backend = ownerUploadBackend();
 
     if (supabaseOk) {
       const [stats, graph] = await Promise.all([getVaultStats(), buildVaultGraph()]);
@@ -49,16 +50,23 @@ export async function GET() {
       });
     }
 
-    // No Supabase — chat still works; local upload if filesystem is writable.
+    const canUpload = ownerKnowledgeWritable();
+    const provider =
+      backend === "blob"
+        ? ownerLocal
+          ? "Vercel Blob (your uploads)"
+          : "Vercel Blob ready — upload to replace Danny"
+        : ownerLocal
+          ? "Local owner knowledge"
+          : "Bundled demo knowledge";
+
     return NextResponse.json({
       ok: true,
       client: ownerLocal ? "owner" : APP_CLIENT,
       configured: true,
-      uploadMode: ownerKnowledgeWritable() ? "local" : "none",
-      provider: ownerLocal
-        ? "Local owner knowledge"
-        : "Bundled demo knowledge (no Supabase)",
-      canUpload: ownerKnowledgeWritable(),
+      uploadMode: backend === "none" ? "none" : backend,
+      provider,
+      canUpload,
       hasUserBrain: ownerLocal,
       stats: {
         documents: ownerNotes.length,
@@ -72,11 +80,13 @@ export async function GET() {
         links: 0,
       })),
       graph: { nodes: [], links: [], folders: [] },
-      hint: ownerKnowledgeWritable()
+      hint: canUpload
         ? ownerLocal
-          ? "Your local uploads are active — Danny demo is off."
-          : "Upload .md / .zip here to replace Danny (saved locally). Supabase not required."
-        : "Chat works without Supabase. Cloud uploads need Supabase env keys (optional).",
+          ? "Your uploads are active — Danny demo is off."
+          : backend === "blob"
+            ? "Upload .md / .zip — saved to Vercel Blob (no Supabase)."
+            : "Upload .md / .zip — saved locally (no Supabase)."
+        : "Chat works. For cloud uploads add BLOB_READ_WRITE_TOKEN (Vercel Storage → Blob), or run locally.",
     });
   } catch (err) {
     return NextResponse.json(
