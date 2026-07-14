@@ -26,3 +26,10 @@ mission-control/.trash/
 content/knowledge/owner/knowledge/*
 !content/knowledge/owner/knowledge/.gitkeep
 
+
+# Nested reference checkout — not part of this app
+marketingos-main/
+
+# Electron packaging output
+dist-electron/
+
