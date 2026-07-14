@@ -1,0 +1,33 @@
+# Netlify — Next.js AI Brain (API engine, no Claude CLI)
+# Docs: https://docs.netlify.com/frameworks/next-js/overview/
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
+  # Default to the deployable API brain (not local Claude CLI)
+  BRAIN_ENGINE = "api"
+
+# Next.js runtime plugin (required for App Router on Netlify)
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# Longer timeouts for vault upload + embedding + chat
+[functions]
+  node_bundler = "esbuild"
+  included_files = ["content/knowledge/**"]
+
+# Template env vars — Netlify Deploy button / UI prompts for these.
+# Required for the AI Brain to answer + index uploads:
+#   AI_GATEWAY_API_KEY          (or ANTHROPIC_API_KEY)
+#   AI_MODEL                    (e.g. anthropic/claude-sonnet-4-6)
+#   NEXT_PUBLIC_SUPABASE_URL
+#   NEXT_PUBLIC_SUPABASE_ANON_KEY
+#   SUPABASE_SERVICE_ROLE_KEY
+# Optional but recommended for embeddings if gateway has no OpenAI route:
+#   OPENAI_API_KEY
+# Optional:
+#   BRAIN_ENGINE=api
+#   APP_URL=https://your-site.netlify.app

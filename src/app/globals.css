@@ -1,0 +1,144 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  /* shadcn theme tokens, ink-palette derived */
+  --background: 245 38% 4%;          /* ink-950 — deep indigo-black */
+  --foreground: 0 0% 96%;
+  --card: 244 30% 7%;                /* ink-900 */
+  --card-foreground: 0 0% 96%;
+  --popover: 244 26% 9%;
+  --popover-foreground: 0 0% 96%;
+  --primary: 262 83% 70%;            /* accent-400 */
+  --primary-foreground: 245 38% 4%;
+  --secondary: 244 22% 13%;
+  --secondary-foreground: 0 0% 96%;
+  --muted: 244 22% 11%;
+  --muted-foreground: 240 7% 63%;
+  --accent: 262 83% 70%;
+  --accent-foreground: 245 38% 4%;
+  --destructive: 0 80% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 244 13% 17%;
+  --input: 244 13% 17%;
+  --ring: 262 83% 65%;
+  --radius: 0.6rem;
+}
+
+html, body { height: 100%; }
+body {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.12); }
+
+/* Moving-border conic-gradient animation for active agent */
+@property --angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes spin-angle {
+  to { --angle: 360deg; }
+}
+
+.moving-border {
+  position: relative;
+  isolation: isolate;
+}
+.moving-border::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(from var(--angle), transparent 70%, rgba(167,139,250,0.95) 80%, rgba(217,70,239,0.95) 90%, transparent 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  animation: spin-angle 2.6s linear infinite;
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* ── Brain visualization: glass HUD + ambient motion (Synaptic Bloom) ── */
+
+/* Shared frosted-glass token for the HUD panels + node tooltip */
+.glass {
+  background: rgba(10, 10, 15, 0.55);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  box-shadow: 0 0 40px rgba(99, 102, 241, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* Ambient aurora-blob drift (CSS blob fallbacks / 3D backdrop accents) */
+@keyframes blob-drift-a { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(3%, -4%); } }
+@keyframes blob-drift-b { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(-4%, 3%); } }
+.blob-a { animation: blob-drift-a 42s ease-in-out infinite; }
+.blob-b { animation: blob-drift-b 54s ease-in-out infinite; }
+
+/* Breathing accent dot used in the HUD identity row */
+@keyframes dot-breathe { 0%, 100% { opacity: 0.55; transform: scale(0.92); } 50% { opacity: 1; transform: scale(1.08); } }
+.dot-breathe { animation: dot-breathe 3.2s ease-in-out infinite; }
+
+/* Brain-graph idle "living" wash — the nodes subtly shift colour + glow, like the
+   orb did. A gentle on-theme hue oscillation (cyan ↔ violet) with a soft
+   brightness/saturation swell. Applied to the canvas wrapper on /jarvis (BrainOrb);
+   GPU-cheap (a single composited filter), and pure-white labels stay readable. */
+@keyframes brain-ambient {
+  0%, 100% { filter: hue-rotate(-22deg) saturate(1.08) brightness(0.98); }
+  50%      { filter: hue-rotate(48deg)  saturate(1.34) brightness(1.14); }
+}
+.brain-ambient { animation: brain-ambient 12s ease-in-out infinite; will-change: filter; }
+
+/* Reduced-motion kill switch */
+@media (prefers-reduced-motion: reduce) {
+  .blob-a, .blob-b, .dot-breathe, .moving-border::before, .brain-ambient { animation: none !important; }
+}
+
+/* ── Rich text (tiptap) editor content — restore element styling that Tailwind
+      preflight resets, scoped to the WYSIWYG doc editor in the settings panel. ── */
+.rich-editor:focus { outline: none; }
+.rich-editor h1 { font-size: 1.5rem; font-weight: 700; line-height: 1.25; margin: 1rem 0 0.5rem; letter-spacing: -0.01em; }
+.rich-editor h2 { font-size: 1.2rem; font-weight: 700; line-height: 1.3; margin: 0.9rem 0 0.4rem; }
+.rich-editor h3 { font-size: 1.05rem; font-weight: 600; margin: 0.8rem 0 0.35rem; }
+.rich-editor p { margin: 0.5rem 0; }
+.rich-editor ul { list-style: disc; padding-left: 1.4rem; margin: 0.5rem 0; }
+.rich-editor ol { list-style: decimal; padding-left: 1.4rem; margin: 0.5rem 0; }
+.rich-editor li { margin: 0.2rem 0; }
+.rich-editor li > p { margin: 0; }
+.rich-editor strong { font-weight: 700; color: #fff; }
+.rich-editor em { font-style: italic; }
+.rich-editor blockquote { border-left: 3px solid rgba(167,139,250,0.6); padding-left: 0.9rem; margin: 0.7rem 0; color: rgba(255,255,255,0.65); font-style: italic; }
+.rich-editor code { background: rgba(255,255,255,0.08); border-radius: 4px; padding: 0.1em 0.35em; font-size: 0.88em; font-family: var(--font-geist-mono, ui-monospace, monospace); }
+.rich-editor pre { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 0.8rem 1rem; margin: 0.7rem 0; overflow-x: auto; }
+.rich-editor pre code { background: none; padding: 0; }
+.rich-editor a { color: #67e8f9; text-decoration: underline; }
+.rich-editor hr { border: none; border-top: 1px solid rgba(255,255,255,0.12); margin: 1rem 0; }
+/* empty-doc placeholder */
+.rich-editor p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: rgba(255,255,255,0.28); float: left; height: 0; pointer-events: none; }
+
+/* ── Skeleton shimmer for streaming tables (leads coming in) ── */
+@keyframes lead-shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+.lead-shimmer {
+  background: linear-gradient(90deg, rgba(255,255,255,0.035) 25%, rgba(255,255,255,0.10) 37%, rgba(255,255,255,0.035) 63%);
+  background-size: 200% 100%;
+  animation: lead-shimmer 1.5s ease-in-out infinite;
+  border-radius: 6px;
+}
+@media (prefers-reduced-motion: reduce) { .lead-shimmer { animation: none; } }
+
+/* Scrollable region with NO visible scrollbar (wheel + trackpad still scroll it). */
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { width: 0; height: 0; display: none; }
