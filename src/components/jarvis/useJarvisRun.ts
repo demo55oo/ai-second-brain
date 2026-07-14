@@ -165,7 +165,9 @@ function reduce(s: JarvisRunState, e: JarvisEvent, nextId: () => number): Jarvis
       );
     case "artifact":
       if (e.kind === "newsletter") return bump({ newsletter: e.data });
-      return bump({ artifact: e.data });
+      if (e.kind === "carousel") return bump({ artifact: e.data });
+      // leads / other kinds: no dedicated panel on the marketing org chart
+      return s;
     case "response":
       return bump({ response: e.markdown });
     case "run.complete":
