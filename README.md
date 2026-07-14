@@ -23,28 +23,27 @@ Vercel and Netlify.
 
 ## One-click deploy
 
-> Both buttons open the host UI and ask for the **required** LLM env vars.
-> Supabase is optional — add it later only if you want vault upload.
+> Buttons only ask for your **LLM API key**. `BRAIN_ENGINE=api` is already the
+> default — you do not set it. Supabase is optional.
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fdemo55oo%2Fai-second-brain&env=BRAIN_ENGINE,AI_GATEWAY_API_KEY,AI_MODEL&envDescription=Minimum%20to%20run%20the%20AI%20Brain%20chat%20(Supabase%20optional%20%E2%80%94%20see%20README)&envLink=https%3A%2F%2Fgithub.com%2Fdemo55oo%2Fai-second-brain%23environment-variables&project-name=ai-second-brain&repository-name=ai-second-brain)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fdemo55oo%2Fai-second-brain&env=AI_GATEWAY_API_KEY&envDescription=Paste%20your%20Vercel%20AI%20Gateway%20key%20(or%20set%20ANTHROPIC_API_KEY%20after%20deploy).%20BRAIN_ENGINE%20defaults%20to%20api%20%E2%80%94%20no%20need%20to%20add%20it.&envLink=https%3A%2F%2Fgithub.com%2Fdemo55oo%2Fai-second-brain%23environment-variables&project-name=ai-second-brain&repository-name=ai-second-brain)
 
-[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/demo55oo/ai-second-brain#BRAIN_ENGINE=api&AI_MODEL=anthropic/claude-sonnet-4-6)
+[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/demo55oo/ai-second-brain)
 
-After deploy, open **Site settings → Environment variables** (Netlify) or
-**Project → Settings → Environment Variables** (Vercel) and paste your
-`AI_GATEWAY_API_KEY` or `ANTHROPIC_API_KEY`.
+After deploy, open **Environment variables** and paste `AI_GATEWAY_API_KEY` **or**
+`ANTHROPIC_API_KEY`. Nothing else is required to chat.
 
 ## Environment variables
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `BRAIN_ENGINE` | yes | Set to `api` for Vercel/Netlify |
 | `AI_GATEWAY_API_KEY` **or** `ANTHROPIC_API_KEY` | yes | Chat answers |
-| `AI_MODEL` | recommended | e.g. `anthropic/claude-sonnet-4-6` |
-| `NEXT_PUBLIC_SUPABASE_URL` | optional | Only for vault upload / brand kits |
+| `AI_MODEL` | optional | Defaults internally; e.g. `anthropic/claude-sonnet-4-6` |
+| `BRAIN_ENGINE` | no | Defaults to `api` — do not set unless you want `cli` locally |
+| `NEXT_PUBLIC_SUPABASE_URL` | optional | Cloud vault upload only |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | optional | Only with Supabase |
-| `SUPABASE_SERVICE_ROLE_KEY` | optional | Only for vault ingest / search |
-| `OPENAI_API_KEY` | optional | Embeddings if you use vault upload without gateway |
+| `SUPABASE_SERVICE_ROLE_KEY` | optional | Only for cloud vault ingest |
+| `OPENAI_API_KEY` | optional | Embeddings if using Supabase vault without gateway |
 | `APP_URL` | optional | Public site URL |
 
 Copy [`.env.example`](./.env.example) locally as `.env.local`.

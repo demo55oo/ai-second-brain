@@ -3,6 +3,10 @@
   "framework": "nextjs",
   "buildCommand": "next build",
   "installCommand": "npm install",
+  "env": {
+    "BRAIN_ENGINE": "api",
+    "AI_MODEL": "anthropic/claude-sonnet-4-6"
+  },
   "functions": {
     "src/app/api/dashboard/data/route.ts": { "maxDuration": 180, "memory": 1024 },
     "src/app/api/brain/route.ts": { "maxDuration": 30, "memory": 1024 },

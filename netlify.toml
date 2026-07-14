@@ -7,26 +7,28 @@
 
 [build.environment]
   NODE_VERSION = "22"
-  # Default to the deployable API brain (not local Claude CLI)
+  # Default — users never need to set this in the UI
   BRAIN_ENGINE = "api"
+  AI_MODEL = "anthropic/claude-sonnet-4-6"
+
+# Runtime too (not only build)
+[context.production.environment]
+  BRAIN_ENGINE = "api"
+  AI_MODEL = "anthropic/claude-sonnet-4-6"
+
+[context.deploy-preview.environment]
+  BRAIN_ENGINE = "api"
+  AI_MODEL = "anthropic/claude-sonnet-4-6"
 
 # Next.js runtime plugin (required for App Router on Netlify)
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
-# Longer timeouts for vault upload + embedding + chat
 [functions]
   node_bundler = "esbuild"
   included_files = ["content/knowledge/**"]
 
-# Template env vars
-# Required for AI Brain chat:
+# Only secret the user must add after deploy:
 #   AI_GATEWAY_API_KEY   (or ANTHROPIC_API_KEY)
-#   AI_MODEL             (e.g. anthropic/claude-sonnet-4-6)
-#   BRAIN_ENGINE=api
-# Optional — only for vault upload / brand kits (chat works without these):
-#   NEXT_PUBLIC_SUPABASE_URL
-#   NEXT_PUBLIC_SUPABASE_ANON_KEY
-#   SUPABASE_SERVICE_ROLE_KEY
-#   OPENAI_API_KEY
-#   APP_URL=https://your-site.netlify.app
+# Optional cloud vault:
+#   NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY
