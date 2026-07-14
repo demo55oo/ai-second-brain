@@ -8,6 +8,7 @@ import {
   upsertVaultNotes,
   vaultBackendReady,
   getVaultStats,
+  clearVault,
   type ParsedNote,
 } from "@/lib/vault-supabase";
 
@@ -20,8 +21,10 @@ export const maxDuration = 300;
  *   - .md / .txt / .markdown notes
  *   - .zip of an Obsidian vault (or folder of markdown)
  * Optional field `folder` prefixes relative paths.
+ * Optional field `replace` (default "1") — clears the vault first so uploads
+ * fully replace any previous demo/Danny seed.
  *
- * POST /api/brain/upload?seed=1 — seed from content/knowledge/<client>
+ * POST /api/brain/upload?seed=1 — seed from content/knowledge/<client> (demo only)
  */
 export async function POST(req: Request) {
   try {
@@ -45,6 +48,9 @@ export async function POST(req: Request) {
 
     const form = await req.formData();
     const folderPrefix = String(form.get("folder") || "").replace(/\\/g, "/").replace(/^\/|\/$/g, "");
+    // Default replace=1 so user uploads become the only brain — Danny demo is cleared.
+    const replaceRaw = form.get("replace");
+    const replace = replaceRaw == null ? true : String(replaceRaw) !== "0" && String(replaceRaw) !== "false";
     const files = form.getAll("files").filter((f): f is File => typeof f !== "string" && !!f);
     // also accept single `file`
     const single = form.get("file");
@@ -81,9 +87,22 @@ export async function POST(req: Request) {
       );
     }
 
+    let cleared = 0;
+    if (replace) {
+      cleared = await clearVault(APP_CLIENT);
+    }
+
     const result = await upsertVaultNotes(notes, APP_CLIENT);
     const stats = await getVaultStats();
-    return NextResponse.json({ ok: true, uploaded: notes.length, ...result, stats, client: APP_CLIENT });
+    return NextResponse.json({
+      ok: true,
+      uploaded: notes.length,
+      replaced: replace,
+      cleared,
+      ...result,
+      stats,
+      client: APP_CLIENT,
+    });
   } catch (err) {
     console.error("[brain/upload]", err);
     return NextResponse.json(

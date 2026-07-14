@@ -115,7 +115,11 @@ function VaultPanel({ open }: { open: boolean }) {
       const res = await fetch("/api/brain/upload", { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || "Upload failed");
-      toast.success(`Indexed ${data.documents ?? data.uploaded} notes · ${data.chunks} chunks`);
+      toast.success(
+        data.replaced
+          ? `Replaced brain with ${data.documents ?? data.uploaded} notes · Danny demo off`
+          : `Indexed ${data.documents ?? data.uploaded} notes · ${data.chunks} chunks`
+      );
       await refresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Upload failed");
@@ -143,7 +147,8 @@ function VaultPanel({ open }: { open: boolean }) {
   return (
     <div data-lenis-prevent className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
       <p className="mb-4 max-w-xl text-[13px] leading-relaxed text-foreground/50">
-        Optional. Upload markdown or a vault zip to index in Supabase. Chat already works from the bundled <code className="text-foreground/70">content/knowledge</code> docs without Supabase.
+        Upload your markdown or vault zip. That becomes the <span className="text-foreground/80">only</span> brain
+        for chat — Danny&apos;s bundled profile is ignored. Without an upload, chat uses the demo knowledge docs.
       </p>
 
       <div className="mb-5 grid grid-cols-3 gap-3">
@@ -190,7 +195,7 @@ function VaultPanel({ open }: { open: boolean }) {
           className="flex items-center gap-2 rounded-xl border border-white/12 bg-white/[0.04] px-4 py-2.5 text-[13px] font-medium text-foreground/80 transition hover:bg-white/[0.08] disabled:opacity-50"
         >
           <Sparkle size={16} weight="duotone" />
-          Seed from content/knowledge
+          Seed Danny demo
         </button>
         <button
           onClick={() => void refresh()}

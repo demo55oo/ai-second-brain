@@ -31,8 +31,28 @@ async function gatherContext(instruction: string): Promise<{
   hits: Awaited<ReturnType<typeof hybridSearch>>;
   docs: string;
   preamble: string;
+  source: "vault" | "bundled";
 }> {
   let hits: Awaited<ReturnType<typeof hybridSearch>> = [];
+  let userVault = false;
+  try {
+    const { hasUserVault } = await import("./vault-supabase");
+    userVault = await hasUserVault();
+  } catch {
+    userVault = false;
+  }
+
+  // User-uploaded vault is the source of truth — do NOT mix in Danny's bundled profile.
+  if (userVault) {
+    try {
+      hits = await hybridSearch(instruction, 8);
+    } catch (err) {
+      console.warn("[api-brain] vault search failed:", err);
+    }
+    return { hits, docs: "", preamble: "", source: "vault" };
+  }
+
+  // No uploads yet → fall back to bundled content/knowledge (Danny demo).
   try {
     hits = await hybridSearch(instruction, 8);
   } catch (err) {
@@ -65,7 +85,7 @@ async function gatherContext(instruction: string): Promise<{
     /* optional */
   }
 
-  return { hits, docs, preamble };
+  return { hits, docs, preamble, source: "bundled" };
 }
 
 async function completeChat(system: string, user: string, signal?: AbortSignal): Promise<string> {
@@ -160,32 +180,36 @@ export function runApiBrainStream(instruction: string, signal?: AbortSignal): Re
           at: at(),
         });
 
-        const { hits, docs, preamble } = await gatherContext(instruction);
+        const { hits, docs, preamble, source } = await gatherContext(instruction);
 
         const grounding = hits.map((h) => h.title).slice(0, 6);
         emit(controller, {
           type: "agent.status",
           node: "research",
-          status: hits.length
-            ? `Found ${hits.length} notes · ${grounding.slice(0, 3).join(", ")}`
-            : docs
-              ? "Using curated knowledge docs"
-              : "Vault empty — upload notes to ground replies",
+          status:
+            source === "vault"
+              ? hits.length
+                ? `Your vault · ${hits.length} hits · ${grounding.slice(0, 3).join(", ")}`
+                : "Your vault is indexed but no close matches — answering from uploaded notes only"
+              : docs
+                ? "Using bundled demo knowledge (upload your markdown to replace it)"
+                : "No knowledge yet — upload notes in settings",
           at: at(),
         });
         emit(controller, {
           type: "agent.output",
           node: "research",
-          summary: hits.length
-            ? `Retrieved ${hits.length} vault hits`
-            : "No vault hits yet — upload markdown to improve answers",
+          summary:
+            source === "vault"
+              ? `Using your uploaded vault only (${hits.length} hits) — Danny demo ignored`
+              : "Using bundled demo knowledge",
           at: at(),
         });
         emit(controller, {
           type: "agent.report",
           from: "research",
           to: "kronos",
-          summary: hits.length ? `${hits.length} notes` : "no vault hits",
+          summary: source === "vault" ? `vault · ${hits.length}` : "bundled demo",
           at: at(),
         });
 
@@ -196,12 +220,24 @@ export function runApiBrainStream(instruction: string, signal?: AbortSignal): Re
           ? hits
               .map((h, i) => `[${i + 1}] [[${h.title}]] (${h.folder})\n${h.excerpt}`)
               .join("\n\n")
-          : "(no vault chunks — vault may be empty or embeddings not configured)";
+          : source === "vault"
+            ? "(no close vault matches — stay within the owner's uploaded notes; do not invent a Danny/demo identity)"
+            : "(no vault chunks yet)";
 
-        const system = `You are the founder's second-brain operator for client "${APP_CLIENT}".
+        const system =
+          source === "vault"
+            ? `You are the owner's second-brain operator.
+Ground answers ONLY in the retrieved vault notes below (their uploaded markdown).
+Do NOT use any Danny / demo founder profile, voice, ICP, or branding.
+Cite sources inline as [[Note Title]]. Be direct and specific.
+If the notes do not cover the question, say what is missing.
+
+Retrieved vault chunks:
+${vaultBlock}`
+            : `You are the founder's second-brain operator for the bundled demo client "${APP_CLIENT}".
 Answer using the retrieved notes when relevant. Cite sources inline as [[Note Title]].
 Be direct, specific, and useful. Prefer short structured answers with markdown.
-If the vault is empty, say so briefly and give a sensible best-effort answer.
+If knowledge is thin, say so briefly.
 
 ${preamble ? `Identity context:\n${preamble}\n` : ""}
 Retrieved vault chunks:

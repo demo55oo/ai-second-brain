@@ -222,3 +222,19 @@ export async function deleteVaultNote(relPath: string, client = APP_CLIENT) {
   const { error } = await db.from("vault_documents").delete().eq("client", client).eq("path", relPath);
   if (error) throw new Error(error.message);
 }
+
+/** Wipe every note for a client (chunks cascade). Used when user uploads replace the demo brain. */
+export async function clearVault(client = APP_CLIENT): Promise<number> {
+  const db = supabaseAdmin();
+  if (!db) throw new Error("Supabase is not configured");
+  const { data, error } = await db.from("vault_documents").delete().eq("client", client).select("id");
+  if (error) throw new Error(error.message);
+  return data?.length ?? 0;
+}
+
+/** True when the user has indexed vault notes — those override bundled Danny knowledge. */
+export async function hasUserVault(client = APP_CLIENT): Promise<boolean> {
+  if (!vaultBackendReady()) return false;
+  const stats = await getVaultStats(client);
+  return stats.documents > 0;
+}
