@@ -18,16 +18,20 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { Counter, Meter, Panel, Rise, StatusDot } from "@/components/dashboard/ui";
+import { fileToBrowserNote, loadBrowserVault, saveBrowserVault } from "@/lib/browser-vault";
 
 /**
  * /brain — marketingos-inspired vault UI, wired to our upload APIs.
- * Uploads replace Danny. Supabase optional (local owner folder when writable).
+ * Prefer disk: merge into content/knowledge/owner/BRAIN.md.
+ * On serverless hosts, same single-document shape in IndexedDB — no Blob.
  */
 
 type Phase = "idle" | "uploading" | "done" | "error";
 type Status = {
   configured: boolean;
   canUpload?: boolean;
+  diskWritable?: boolean;
+  blobReady?: boolean;
   hasUserBrain?: boolean;
   uploadMode?: string;
   provider: string;
@@ -44,12 +48,47 @@ export default function BrainPage() {
   const [dragging, setDragging] = useState(false);
   const [progress, setProgress] = useState(0);
   const [lastCount, setLastCount] = useState(0);
+  const [storageLabel, setStorageLabel] = useState<"disk" | "blob" | "browser" | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const loadStatus = useCallback(async () => {
     try {
       const res = await fetch("/api/brain");
-      if (res.ok) setStatus(await res.json());
+      const server = res.ok ? await res.json() : null;
+      const browserNotes = await loadBrowserVault();
+      if (!server) {
+        if (browserNotes.length) {
+          setStatus({
+            configured: true,
+            canUpload: true,
+            hasUserBrain: true,
+            uploadMode: "browser",
+            provider: "This browser (IndexedDB)",
+            hint: "Notes live on this device and are sent with each chat.",
+            stats: { documents: browserNotes.length, chunks: browserNotes.length, folders: 1, links: 0 },
+            sample: browserNotes.slice(0, 8).map((n) => ({ title: n.title, folder: n.folder, links: 0 })),
+          });
+        }
+        return;
+      }
+      if (browserNotes.length && !(server.stats?.documents > 0) && !server.hasUserBrain) {
+        setStatus({
+          ...server,
+          hasUserBrain: true,
+          uploadMode: "browser",
+          provider: "This browser (IndexedDB)",
+          hint: "Notes live on this device and ride along with chat. Run locally to save real files under content/knowledge/owner/.",
+          stats: {
+            documents: browserNotes.length,
+            chunks: browserNotes.length,
+            folders: 1,
+            links: 0,
+          },
+          sample: browserNotes.slice(0, 8).map((n) => ({ title: n.title, folder: n.folder, links: 0 })),
+        });
+        return;
+      }
+      setStatus(server);
     } catch {
       /* ignore */
     }
@@ -66,6 +105,7 @@ export default function BrainPage() {
       setError("");
       setPhase("uploading");
       setProgress(12);
+      setStorageLabel(null);
       try {
         const fd = new FormData();
         files.forEach((f) => fd.append("files", f));
@@ -73,11 +113,35 @@ export default function BrainPage() {
         const res = await fetch("/api/brain/upload", { method: "POST", body: fd });
         clearInterval(tick);
         const data = await res.json();
-        if (!res.ok || !data.ok) throw new Error(data.error || "Upload failed");
-        setLastCount(data.documents ?? data.uploaded ?? files.length);
-        setProgress(100);
-        setPhase("done");
-        await loadStatus();
+
+        if (res.ok && data.ok) {
+          setLastCount(data.documents ?? data.uploaded ?? files.length);
+          setStorageLabel(data.mode === "supabase" ? null : data.mode === "blob" ? "blob" : "disk");
+          setProgress(100);
+          setPhase("done");
+          await loadStatus();
+          return;
+        }
+
+        if (data.code === "USE_BROWSER_VAULT" || res.status === 503) {
+          const notes = (
+            await Promise.all(files.map((f) => fileToBrowserNote(f)))
+          ).filter((n): n is NonNullable<typeof n> => !!n);
+          if (!notes.length) {
+            throw new Error(
+              "On this host, upload .md / .txt files (zip needs a local or writable server). Or run `npm run dev` to save under content/knowledge/owner/."
+            );
+          }
+          await saveBrowserVault(notes);
+          setLastCount(notes.length);
+          setStorageLabel("browser");
+          setProgress(100);
+          setPhase("done");
+          await loadStatus();
+          return;
+        }
+
+        throw new Error(data.error || "Upload failed");
       } catch (e) {
         setPhase("error");
         setError(e instanceof Error ? e.message : "Upload failed");
@@ -100,7 +164,6 @@ export default function BrainPage() {
   };
 
   const hasVault = !!(status?.hasUserBrain || (status?.stats.documents ?? 0) > 0);
-  const canUpload = status?.canUpload !== false;
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#02040a] text-white">
@@ -215,13 +278,11 @@ export default function BrainPage() {
                     }}
                     onDragLeave={() => setDragging(false)}
                     onDrop={onDrop}
-                    onClick={() => canUpload && inputRef.current?.click()}
+                    onClick={() => inputRef.current?.click()}
                     className={`group relative flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed px-6 py-14 text-center transition ${
-                      !canUpload
-                        ? "cursor-not-allowed border-white/8 bg-white/[0.01] opacity-60"
-                        : dragging
-                          ? "cursor-pointer border-cyan-300/60 bg-cyan-400/[0.06]"
-                          : "cursor-pointer border-white/12 bg-white/[0.015] hover:border-cyan-300/40 hover:bg-white/[0.03]"
+                      dragging
+                        ? "cursor-pointer border-cyan-300/60 bg-cyan-400/[0.06]"
+                        : "cursor-pointer border-white/12 bg-white/[0.015] hover:border-cyan-300/40 hover:bg-white/[0.03]"
                     }`}
                   >
                     <motion.div
@@ -233,9 +294,11 @@ export default function BrainPage() {
                     <div>
                       <div className="text-[15px] font-semibold text-white">Drop .md or vault.zip here</div>
                       <div className="mt-1 text-[12px] text-white/40">
-                        {canUpload
-                          ? "or click to browse · your files replace the demo brain"
-                          : "Uploads need a writable host or optional Supabase — chat still works"}
+                        {status?.blobReady
+                          ? "or click · name + content merge into BRAIN.md in Vercel Blob"
+                          : status?.diskWritable !== false
+                            ? "or click · name + content merge into BRAIN.md (uploads not kept as separate files)"
+                            : "or click · no Blob yet — stays in this browser (use Deploy button to auto-create Blob)"}
                       </div>
                     </div>
                     <input
@@ -244,7 +307,6 @@ export default function BrainPage() {
                       accept=".zip,.md,.markdown,.txt"
                       multiple
                       className="hidden"
-                      disabled={!canUpload}
                       onChange={(e) => e.target.files?.length && void uploadFiles(e.target.files)}
                     />
                   </div>
@@ -289,6 +351,15 @@ export default function BrainPage() {
                   <div className="text-[16px] font-bold text-white">Your brain is live</div>
                   <div className="text-[12.5px] text-white/50">
                     <span className="font-semibold text-emerald-300">{lastCount.toLocaleString()}</span> notes indexed · Danny demo is off
+                    {storageLabel === "disk" && (
+                      <span className="block mt-1 text-white/40">Merged into content/knowledge/owner/BRAIN.md</span>
+                    )}
+                    {storageLabel === "blob" && (
+                      <span className="block mt-1 text-white/40">Merged into BRAIN.md on Vercel Blob</span>
+                    )}
+                    {storageLabel === "browser" && (
+                      <span className="block mt-1 text-white/40">One brain document in this browser · sent with each chat</span>
+                    )}
                   </div>
                   <div className="mt-1 flex flex-wrap justify-center gap-2.5">
                     <button
@@ -317,7 +388,7 @@ export default function BrainPage() {
         )}
 
         <p className="mt-8 text-center text-[11px] text-white/25">
-          Supabase is optional · chat works with an LLM key · uploads override the Danny demo
+          Local BRAIN.md when possible · browser document on serverless · uploads override Danny
         </p>
       </main>
     </div>
@@ -348,10 +419,15 @@ function BrainSearch() {
     if (!query) return;
     setLoading(true);
     try {
+      const notes = await loadBrowserVault();
       const res = await fetch("/api/brain/search", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ query, limit: 6 }),
+        body: JSON.stringify({
+          query,
+          limit: 6,
+          notes: notes.length ? notes : undefined,
+        }),
       });
       const data = await res.json();
       const results = (data.results || []).map(

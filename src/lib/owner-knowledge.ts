@@ -1,19 +1,26 @@
 /**
- * Owner knowledge uploads — override Danny without Supabase.
+ * Owner second brain = ONE document (BRAIN.md).
  *
- * Storage backends (first match wins for writes):
- *   1. Local disk  — content/knowledge/owner/knowledge/*.md (dev / VPS)
- *   2. Vercel Blob — owner-vault/notes.json when BLOB_READ_WRITE_TOKEN is set
- *                    (works on Vercel/Netlify cloud without Supabase)
+ * Backends (auto-detected):
+ * 1. Disk — content/knowledge/owner/BRAIN.md (local / VPS)
+ * 2. Vercel Blob — owner/BRAIN.md when BLOB_READ_WRITE_TOKEN is set
+ *    (one-click Deploy button provisions the store; token is injected — no paste)
+ * 3. None — UI falls back to browser document
+ *
+ * Uploads are not kept as separate files. Each note becomes a named section.
  */
 import fs from "node:fs/promises";
 import path from "node:path";
 import matter from "gray-matter";
 
 export const OWNER_CLIENT = "owner";
-const ROOT = path.join(process.cwd(), "content", "knowledge", OWNER_CLIENT, "knowledge");
-const BLOB_PREFIX = "owner-vault/";
-const BLOB_INDEX = "owner-vault/notes.json";
+export const BRAIN_FILENAME = "BRAIN.md";
+/** Stable Blob pathname — overwritten on each upload. */
+export const BRAIN_BLOB_PATH = "owner/BRAIN.md";
+
+const OWNER_DIR = path.join(process.cwd(), "content", "knowledge", OWNER_CLIENT);
+const BRAIN_PATH = path.join(OWNER_DIR, BRAIN_FILENAME);
+const LEGACY_ROOT = path.join(OWNER_DIR, "knowledge");
 
 export type OwnerNote = {
   path: string;
@@ -22,176 +29,273 @@ export type OwnerNote = {
   folder: string;
 };
 
-type StoredNote = { path: string; title: string; body: string; raw?: string };
+export type OwnerBackend = "disk" | "blob" | "none";
 
 function diskWritable(): boolean {
   if (process.env.VERCEL || process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME) return false;
   return true;
 }
 
-function blobConfigured(): boolean {
+export function blobConfigured(): boolean {
   return !!process.env.BLOB_READ_WRITE_TOKEN;
 }
 
-/** True when uploads can be saved (disk or Blob). */
 export function ownerKnowledgeWritable(): boolean {
   return diskWritable() || blobConfigured();
 }
 
-export function ownerUploadBackend(): "disk" | "blob" | "none" {
-  if (diskWritable()) return "disk";
+export function ownerUploadBackend(): OwnerBackend {
+  // Blob wins when configured so a shipped/local md file never overrides cloud brain.
   if (blobConfigured()) return "blob";
+  if (diskWritable()) return "disk";
   return "none";
 }
 
-function parseRaw(file: string, raw: string): OwnerNote {
-  const { data, content } = matter(raw);
-  return {
-    path: file,
-    title: (typeof data.title === "string" && data.title) || file.replace(/\.md$/i, ""),
-    body: content.trim(),
-    folder: "owner",
-  };
+export function ownerBrainPath(): string {
+  return BRAIN_PATH;
 }
 
-async function listFromDisk(): Promise<OwnerNote[]> {
-  let files: string[] = [];
-  try {
-    files = (await fs.readdir(ROOT)).filter((f) => f.endsWith(".md"));
-  } catch {
-    return [];
+/** Build the single brain document from uploaded notes. */
+export function buildBrainMarkdown(
+  notes: Array<{ filename: string; title?: string; body: string }>
+): string {
+  const parts = [
+    "# Second Brain",
+    "",
+    "_This is the default AI brain file. Uploaded notes are merged here as sections — not stored as separate files._",
+    "",
+  ];
+  for (const n of notes) {
+    const name = path.basename(n.filename).replace(/\.markdown$/i, ".md");
+    const title = (n.title || name.replace(/\.md$/i, "")).trim();
+    const body = stripFrontmatter(n.body).trim();
+    parts.push(`<!-- section: ${name} -->`);
+    parts.push(`## ${title}`);
+    parts.push("");
+    parts.push(`_Source: ${name}_`);
+    parts.push("");
+    parts.push(body || "_(empty)_");
+    parts.push("");
   }
+  return parts.join("\n").trimEnd() + "\n";
+}
+
+/** Split BRAIN.md back into virtual notes (for UI / light search). */
+export function parseBrainMarkdown(raw: string): OwnerNote[] {
+  const text = raw.trim();
+  if (!text || text === "# Second Brain") return [];
+
+  const sectionRe =
+    /<!--\s*section:\s*(.+?)\s*-->\s*\n##\s+(.+?)\n([\s\S]*?)(?=(?:\n<!--\s*section:)|\s*$)/g;
   const out: OwnerNote[] = [];
-  for (const file of files) {
+  let m: RegExpExecArray | null;
+  while ((m = sectionRe.exec(text)) !== null) {
+    const file = m[1].trim();
+    const title = m[2].trim();
+    let body = m[3].trim();
+    body = body.replace(/^_Source:\s*.+?_\s*/i, "").trim();
+    out.push({ path: file, title, body, folder: "owner" });
+  }
+
+  if (out.length) return out;
+
+  const { content } = matter(text);
+  const body = content.trim();
+  if (!body || body.startsWith("_This is the default")) return [];
+  return [{ path: BRAIN_FILENAME, title: "Second Brain", body, folder: "owner" }];
+}
+
+function stripFrontmatter(raw: string): string {
+  const { content } = matter(raw);
+  return content;
+}
+
+async function readBrainFromBlob(): Promise<string | null> {
+  if (!blobConfigured()) return null;
+  try {
+    const { get } = await import("@vercel/blob");
+    const result = await get(BRAIN_BLOB_PATH, {
+      access: "private",
+      token: process.env.BLOB_READ_WRITE_TOKEN,
+    });
+    if (!result || result.statusCode !== 200 || !result.stream) return null;
+    const text = await new Response(result.stream).text();
+    return text.trim() ? text : null;
+  } catch {
+    // Older SDK / missing blob — try list + fetch
     try {
-      const raw = await fs.readFile(path.join(ROOT, file), "utf8");
-      out.push(parseRaw(file, raw));
+      const { head } = await import("@vercel/blob");
+      const info = await head(BRAIN_BLOB_PATH, { token: process.env.BLOB_READ_WRITE_TOKEN });
+      if (!info?.url) return null;
+      const res = await fetch(info.url, {
+        headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` },
+      });
+      if (!res.ok) return null;
+      const text = await res.text();
+      return text.trim() ? text : null;
     } catch {
-      /* skip */
+      return null;
     }
   }
-  return out;
 }
 
-async function listFromBlob(): Promise<OwnerNote[]> {
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-  if (!token) return [];
+async function writeBrainToBlob(markdown: string): Promise<void> {
+  const { put } = await import("@vercel/blob");
+  await put(BRAIN_BLOB_PATH, markdown, {
+    access: "private",
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    contentType: "text/markdown; charset=utf-8",
+    token: process.env.BLOB_READ_WRITE_TOKEN,
+  });
+}
+
+export async function readOwnerBrainMarkdown(): Promise<string | null> {
+  // Blob first when token exists — never let a leftover local .md override the cloud brain.
+  if (blobConfigured()) {
+    const fromBlob = await readBrainFromBlob();
+    if (fromBlob && parseBrainMarkdown(fromBlob).length) return fromBlob;
+    return null;
+  }
+
+  if (diskWritable()) {
+    try {
+      const raw = await fs.readFile(BRAIN_PATH, "utf8");
+      if (parseBrainMarkdown(raw).length) return raw;
+    } catch {
+      /* miss */
+    }
+  }
+
+  return null;
+}
+
+async function wipeLocalOwnerMarkdown(): Promise<void> {
   try {
-    const { list } = await import("@vercel/blob");
-    const { blobs } = await list({ prefix: BLOB_PREFIX, token, limit: 100 });
-    const index = blobs.find((b) => b.pathname === BLOB_INDEX || b.pathname.endsWith("notes.json"));
-    if (!index) return [];
-    const res = await fetch(index.url, {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: "no-store",
-    });
-    if (!res.ok) return [];
-    const data = (await res.json()) as { notes?: StoredNote[] };
-    return (data.notes || []).map((n) => ({
-      path: n.path,
-      title: n.title,
-      body: n.body,
-      folder: "owner",
-    }));
-  } catch (err) {
-    console.warn("[owner-knowledge] blob list failed:", err);
-    return [];
+    await fs.unlink(BRAIN_PATH);
+  } catch {
+    /* none */
+  }
+  try {
+    const files = await fs.readdir(LEGACY_ROOT);
+    for (const f of files) {
+      if (f.endsWith(".md") || f === "_manifest.json") {
+        await fs.unlink(path.join(LEGACY_ROOT, f)).catch(() => {});
+      }
+    }
+  } catch {
+    /* no legacy folder */
   }
 }
 
 export async function hasOwnerKnowledge(): Promise<boolean> {
-  const notes = await listOwnerNotes();
-  return notes.length > 0;
+  return !!(await readOwnerBrainMarkdown());
 }
 
 export async function listOwnerNotes(): Promise<OwnerNote[]> {
-  // Prefer disk if any local owner files exist; else Blob
-  const disk = await listFromDisk();
-  if (disk.length) return disk;
-  if (blobConfigured()) return listFromBlob();
-  return [];
-}
-
-async function clearDisk(): Promise<number> {
-  let files: string[] = [];
-  try {
-    files = await fs.readdir(ROOT);
-  } catch {
-    return 0;
-  }
-  let n = 0;
-  for (const f of files) {
-    if (!f.endsWith(".md") && f !== "_manifest.json") continue;
-    await fs.unlink(path.join(ROOT, f)).catch(() => {});
-    n++;
-  }
-  return n;
-}
-
-async function clearBlob(): Promise<number> {
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-  if (!token) return 0;
-  const { list, del } = await import("@vercel/blob");
-  const { blobs } = await list({ prefix: BLOB_PREFIX, token, limit: 1000 });
-  if (!blobs.length) return 0;
-  await del(
-    blobs.map((b) => b.url),
-    { token }
-  );
-  return blobs.length;
+  const raw = await readOwnerBrainMarkdown();
+  if (!raw) return [];
+  return parseBrainMarkdown(raw);
 }
 
 export async function clearOwnerKnowledge(): Promise<number> {
-  if (diskWritable()) return clearDisk();
-  if (blobConfigured()) return clearBlob();
-  return 0;
+  const notes = await listOwnerNotes();
+  const empty = emptyBrainTemplate();
+  if (diskWritable()) {
+    await fs.mkdir(OWNER_DIR, { recursive: true });
+    await fs.writeFile(BRAIN_PATH, empty, "utf8");
+    try {
+      const files = await fs.readdir(LEGACY_ROOT);
+      for (const f of files) {
+        if (f.endsWith(".md") || f === "_manifest.json") {
+          await fs.unlink(path.join(LEGACY_ROOT, f)).catch(() => {});
+        }
+      }
+    } catch {
+      /* no legacy */
+    }
+  }
+  if (blobConfigured()) {
+    try {
+      await writeBrainToBlob(empty);
+    } catch {
+      /* ignore */
+    }
+  }
+  return notes.length;
 }
 
+function emptyBrainTemplate(): string {
+  return `# Second Brain
+
+_This is the default AI brain file. Upload markdown on /brain — each file’s name and content are added as sections here._
+
+`;
+}
+
+/**
+ * Replace BRAIN.md with a fresh merge of the uploaded notes.
+ * Uploaded files themselves are not kept.
+ */
 export async function saveOwnerNotes(
   notes: Array<{ filename: string; raw: string }>
-): Promise<{ documents: number; backend: "disk" | "blob" }> {
+): Promise<{ documents: number; backend: OwnerBackend; path: string }> {
   const backend = ownerUploadBackend();
   if (backend === "none") {
     throw new Error(
-      "Cloud host cannot save uploads to disk. Add BLOB_READ_WRITE_TOKEN (Vercel Blob — one key, no Supabase) or run locally."
+      "No writable brain store. Use the Vercel Deploy button (auto-creates Blob) or run `npm run dev` locally."
     );
   }
 
-  const stored: StoredNote[] = notes.map((n) => {
-    const safe = n.filename.replace(/[^a-zA-Z0-9._\-/]/g, "_").replace(/^\/+/, "");
-    const base = path.basename(safe).endsWith(".md") ? path.basename(safe) : `${path.basename(safe)}.md`;
-    const parsed = parseRaw(base, n.raw);
-    return { path: base, title: parsed.title, body: parsed.body, raw: n.raw };
+  const sections = notes.map((n) => {
+    const { data, content } = matter(n.raw);
+    const filename = path.basename(n.filename).replace(/\.markdown$/i, ".md");
+    const title =
+      (typeof data.title === "string" && data.title) || filename.replace(/\.md$/i, "");
+    return { filename, title, body: content.trim() };
   });
 
+  const markdown = buildBrainMarkdown(sections);
+
   if (backend === "disk") {
-    await fs.mkdir(ROOT, { recursive: true });
-    await clearDisk();
-    for (const n of stored) {
-      await fs.writeFile(path.join(ROOT, n.path), n.raw || `---\ntitle: ${JSON.stringify(n.title)}\n---\n\n${n.body}\n`, "utf8");
+    await fs.mkdir(OWNER_DIR, { recursive: true });
+    await fs.mkdir(LEGACY_ROOT, { recursive: true });
+    // Clear legacy per-file uploads so only BRAIN.md remains.
+    try {
+      const files = await fs.readdir(LEGACY_ROOT);
+      for (const f of files) {
+        if (f.endsWith(".md") || f === "_manifest.json") {
+          await fs.unlink(path.join(LEGACY_ROOT, f)).catch(() => {});
+        }
+      }
+    } catch {
+      /* ignore */
     }
-    await fs.writeFile(
-      path.join(ROOT, "_manifest.json"),
-      JSON.stringify({ client: OWNER_CLIENT, count: stored.length, updatedAt: Date.now() }, null, 2),
-      "utf8"
-    );
-    return { documents: stored.length, backend: "disk" };
+    await fs.writeFile(BRAIN_PATH, markdown, "utf8");
+    return {
+      documents: sections.length,
+      backend: "disk",
+      path: `content/knowledge/owner/${BRAIN_FILENAME}`,
+    };
   }
 
-  // Blob backend
-  const token = process.env.BLOB_READ_WRITE_TOKEN!;
-  await clearBlob();
-  const { put } = await import("@vercel/blob");
-  await put(
-    BLOB_INDEX,
-    JSON.stringify({ client: OWNER_CLIENT, updatedAt: Date.now(), notes: stored }),
-    { access: "public", token, contentType: "application/json", addRandomSuffix: false, allowOverwrite: true }
-  );
-  return { documents: stored.length, backend: "blob" };
+  await writeBrainToBlob(markdown);
+  // Drop any local owner .md so they can't shadow Blob on a later read.
+  await wipeLocalOwnerMarkdown();
+  return {
+    documents: sections.length,
+    backend: "blob",
+    path: BRAIN_BLOB_PATH,
+  };
 }
 
 export async function searchOwnerNotes(query: string, limit = 8) {
   const notes = await listOwnerNotes();
+  return rankNotes(notes, query, limit);
+}
+
+/** Rank an arbitrary note list (used for browser-injected vaults too). */
+export function rankNotes(notes: OwnerNote[], query: string, limit = 8) {
   const terms = query
     .toLowerCase()
     .split(/[^\w]+/)

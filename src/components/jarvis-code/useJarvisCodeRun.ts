@@ -6,6 +6,7 @@ import { sounds } from "@/lib/sounds";
 import { drainCodeEvents, type JarvisCodeEvent } from "@/lib/jarvis-code/events";
 import type { JarvisNodeId } from "@/lib/jarvis-events";
 import type { JarvisRunState, FeedEntry } from "@/components/jarvis/useJarvisRun";
+import { loadBrowserVault } from "@/lib/browser-vault";
 
 /**
  * The /jarvis-code run hook. Same live protocol + reducer shape as
@@ -164,10 +165,11 @@ export function useJarvisCodeRun() {
     sounds.send();
 
     try {
+      const notes = await loadBrowserVault();
       const res = await fetch("/api/jarvis-code/run", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ instruction }),
+        body: JSON.stringify({ instruction, notes: notes.length ? notes : undefined }),
         signal: ac.signal,
       });
       if (!res.body) throw new Error("no stream");

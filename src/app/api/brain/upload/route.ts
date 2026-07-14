@@ -22,8 +22,9 @@ export const maxDuration = 300;
 
 /**
  * POST /api/brain/upload
- * Prefer Supabase when configured; otherwise save to local owner knowledge
- * (no Supabase keys required). Uploads always replace prior brain content.
+ * Prefer Supabase when configured; else merge into one BRAIN.md on disk
+ * or Vercel Blob (auto-provisioned by the Deploy button — no token paste).
+ * Last resort: USE_BROWSER_VAULT for IndexedDB on this device.
  */
 export async function POST(req: Request) {
   try {
@@ -46,8 +47,9 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           ok: false,
+          code: "USE_BROWSER_VAULT",
           error:
-            "This cloud host can't write to disk. Add BLOB_READ_WRITE_TOKEN (Vercel → Storage → Blob → connect to project) — no Supabase needed. Or run locally.",
+            "No Blob store on this project yet. Re-deploy with the Vercel button (creates Blob automatically), or run locally. Falling back to this browser.",
         },
         { status: 503 }
       );
@@ -106,7 +108,6 @@ export async function POST(req: Request) {
       });
     }
 
-    // Local owner path — no Supabase
     const result = await saveOwnerNotes(
       notes.map((n) => ({
         filename: path.basename(n.path),
@@ -121,6 +122,7 @@ export async function POST(req: Request) {
       replaced: true,
       documents: result.documents,
       chunks: result.documents,
+      path: result.path,
       stats: { documents: owner.length, chunks: owner.length, folders: 1 },
       client: "owner",
     });

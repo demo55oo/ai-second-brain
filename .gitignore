@@ -26,6 +26,11 @@ mission-control/.trash/
 content/knowledge/owner/knowledge/*
 !content/knowledge/owner/knowledge/.gitkeep
 
+# Owner BRAIN.md is runtime-only (local disk or Vercel Blob) ? never ship it in git
+content/knowledge/owner/BRAIN.md
+content/knowledge/owner/*.md
+!content/knowledge/owner/README.md
+
 
 # Nested reference checkout — not part of this app
 marketingos-main/

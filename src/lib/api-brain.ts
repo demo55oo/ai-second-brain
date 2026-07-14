@@ -27,15 +27,19 @@ function emit(controller: ReadableStreamDefaultController<Uint8Array>, e: Jarvis
   controller.enqueue(new TextEncoder().encode(encodeCodeEvent(e)));
 }
 
-async function gatherContext(instruction: string): Promise<{
+async function gatherContext(
+  instruction: string,
+  clientNotes?: Array<{ path: string; title: string; body: string; folder?: string }>
+): Promise<{
   hits: Awaited<ReturnType<typeof hybridSearch>>;
   docs: string;
   preamble: string;
   source: "vault" | "bundled";
+  brainDoc?: string;
 }> {
   let hits: Awaited<ReturnType<typeof hybridSearch>> = [];
+
   let userVault = false;
-  let ownerLocal = false;
   try {
     const { hasUserVault } = await import("./vault-supabase");
     userVault = await hasUserVault();
@@ -43,17 +47,33 @@ async function gatherContext(instruction: string): Promise<{
     userVault = false;
   }
   try {
-    const { hasOwnerKnowledge, searchOwnerNotes } = await import("./owner-knowledge");
-    ownerLocal = await hasOwnerKnowledge();
-    if (ownerLocal && !userVault) {
+    const {
+      hasOwnerKnowledge,
+      listOwnerNotes,
+      readOwnerBrainMarkdown,
+      searchOwnerNotes,
+    } = await import("./owner-knowledge");
+    if ((await hasOwnerKnowledge()) && !userVault) {
+      const brainDoc = (await readOwnerBrainMarkdown()) || "";
       hits = await searchOwnerNotes(instruction, 8);
-      return { hits, docs: "", preamble: "", source: "vault" };
+      // Prefer the whole BRAIN.md — that's the source of truth.
+      if (!hits.length) {
+        const notes = await listOwnerNotes();
+        hits = notes.slice(0, 8).map((n, i) => ({
+          id: n.path,
+          title: n.title,
+          folder: n.folder,
+          excerpt: n.body.slice(0, 600),
+          source: { keyword: i, semantic: null as number | null },
+          score: 1,
+        }));
+      }
+      return { hits, docs: "", preamble: "", source: "vault", brainDoc };
     }
   } catch {
-    ownerLocal = false;
+    /* ignore */
   }
 
-  // User-uploaded Supabase vault is the source of truth — do NOT mix in Danny.
   if (userVault) {
     try {
       hits = await hybridSearch(instruction, 8);
@@ -63,7 +83,32 @@ async function gatherContext(instruction: string): Promise<{
     return { hits, docs: "", preamble: "", source: "vault" };
   }
 
-  // No uploads yet → fall back to bundled content/knowledge (Danny demo).
+  // Serverless: same single-document brain, built from browser sections.
+  if (clientNotes && clientNotes.length > 0) {
+    const { buildBrainMarkdown, rankNotes } = await import("./owner-knowledge");
+    const notes = clientNotes.map((n) => ({
+      path: n.path,
+      title: n.title,
+      body: n.body,
+      folder: n.folder || "owner",
+    }));
+    hits = rankNotes(notes, instruction, 8);
+    if (!hits.length) {
+      hits = notes.slice(0, 8).map((n, i) => ({
+        id: n.path,
+        title: n.title,
+        folder: n.folder,
+        excerpt: n.body.slice(0, 600),
+        source: { keyword: i, semantic: null as number | null },
+        score: 1,
+      }));
+    }
+    const brainDoc = buildBrainMarkdown(
+      clientNotes.map((n) => ({ filename: n.path, title: n.title, body: n.body }))
+    );
+    return { hits, docs: "", preamble: "", source: "vault", brainDoc };
+  }
+
   try {
     hits = await hybridSearch(instruction, 8);
   } catch (err) {
@@ -167,7 +212,11 @@ async function completeChat(system: string, user: string, signal?: AbortSignal):
   );
 }
 
-export function runApiBrainStream(instruction: string, signal?: AbortSignal): ReadableStream<Uint8Array> {
+export function runApiBrainStream(
+  instruction: string,
+  signal?: AbortSignal,
+  clientNotes?: Array<{ path: string; title: string; body: string; folder?: string }>
+): ReadableStream<Uint8Array> {
   const runId = `api_${Date.now().toString(36)}`;
 
   return new ReadableStream<Uint8Array>({
@@ -191,7 +240,7 @@ export function runApiBrainStream(instruction: string, signal?: AbortSignal): Re
           at: at(),
         });
 
-        const { hits, docs, preamble, source } = await gatherContext(instruction);
+        const { hits, docs, preamble, source, brainDoc } = await gatherContext(instruction, clientNotes);
 
         const grounding = hits.map((h) => h.title).slice(0, 6);
         emit(controller, {
@@ -199,9 +248,11 @@ export function runApiBrainStream(instruction: string, signal?: AbortSignal): Re
           node: "research",
           status:
             source === "vault"
-              ? hits.length
-                ? `Your vault · ${hits.length} hits · ${grounding.slice(0, 3).join(", ")}`
-                : "Your vault is indexed but no close matches — answering from uploaded notes only"
+              ? brainDoc
+                ? `Your BRAIN.md · ${hits.length} sections · ${grounding.slice(0, 3).join(", ")}`
+                : hits.length
+                  ? `Your vault · ${hits.length} hits · ${grounding.slice(0, 3).join(", ")}`
+                  : "Your vault is indexed but no close matches — answering from uploaded notes only"
               : docs
                 ? "Using bundled demo knowledge (upload your markdown to replace it)"
                 : "No knowledge yet — upload notes in settings",
@@ -212,7 +263,9 @@ export function runApiBrainStream(instruction: string, signal?: AbortSignal): Re
           node: "research",
           summary:
             source === "vault"
-              ? `Using your uploaded vault only (${hits.length} hits) — Danny demo ignored`
+              ? brainDoc
+                ? `Using BRAIN.md only (${hits.length} sections) — Danny demo ignored`
+                : `Using your uploaded vault only (${hits.length} hits) — Danny demo ignored`
               : "Using bundled demo knowledge",
           at: at(),
         });
@@ -220,30 +273,32 @@ export function runApiBrainStream(instruction: string, signal?: AbortSignal): Re
           type: "agent.report",
           from: "research",
           to: "kronos",
-          summary: source === "vault" ? `vault · ${hits.length}` : "bundled demo",
+          summary: source === "vault" ? (brainDoc ? `BRAIN.md · ${hits.length}` : `vault · ${hits.length}`) : "bundled demo",
           at: at(),
         });
 
         emit(controller, { type: "agent.activate", node: "text", label: "Writing", at: at() });
         emit(controller, { type: "agent.status", node: "text", status: "Drafting the answer", at: at() });
 
-        const vaultBlock = hits.length
-          ? hits
-              .map((h, i) => `[${i + 1}] [[${h.title}]] (${h.folder})\n${h.excerpt}`)
-              .join("\n\n")
-          : source === "vault"
-            ? "(no close vault matches — stay within the owner's uploaded notes; do not invent a Danny/demo identity)"
-            : "(no vault chunks yet)";
+        const vaultBlock = brainDoc
+          ? brainDoc.slice(0, 120_000)
+          : hits.length
+            ? hits
+                .map((h, i) => `[${i + 1}] [[${h.title}]] (${h.folder})\n${h.excerpt}`)
+                .join("\n\n")
+            : source === "vault"
+              ? "(no close vault matches — stay within the owner's uploaded notes; do not invent a Danny/demo identity)"
+              : "(no vault chunks yet)";
 
         const system =
           source === "vault"
             ? `You are the owner's second-brain operator.
-Ground answers ONLY in the retrieved vault notes below (their uploaded markdown).
+Ground answers ONLY in the second-brain document below (BRAIN.md — uploaded notes merged by filename).
 Do NOT use any Danny / demo founder profile, voice, ICP, or branding.
-Cite sources inline as [[Note Title]]. Be direct and specific.
-If the notes do not cover the question, say what is missing.
+Cite sources inline as [[Section Title]]. Be direct and specific.
+If the document does not cover the question, say what is missing.
 
-Retrieved vault chunks:
+Second brain document:
 ${vaultBlock}`
             : `You are the founder's second-brain operator for the bundled demo client "${APP_CLIENT}".
 Answer using the retrieved notes when relevant. Cite sources inline as [[Note Title]].

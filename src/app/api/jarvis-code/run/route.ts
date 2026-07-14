@@ -24,9 +24,24 @@ export const maxDuration = 300;
  */
 export async function POST(req: Request) {
   let instruction = "What should I know about my ICP?";
+  let clientNotes: Array<{ path: string; title: string; body: string; folder?: string }> | undefined;
   try {
-    const body = (await req.json()) as { instruction?: string };
+    const body = (await req.json()) as {
+      instruction?: string;
+      notes?: Array<{ path: string; title: string; body: string; folder?: string }>;
+    };
     if (body?.instruction && typeof body.instruction === "string") instruction = body.instruction.trim();
+    if (Array.isArray(body?.notes) && body.notes.length) {
+      clientNotes = body.notes
+        .filter((n) => n && typeof n.title === "string" && typeof n.body === "string")
+        .slice(0, 40)
+        .map((n) => ({
+          path: String(n.path || `${n.title}.md`),
+          title: String(n.title).slice(0, 200),
+          body: String(n.body).slice(0, 20000),
+          folder: n.folder ? String(n.folder) : "owner",
+        }));
+    }
   } catch {
     /* keep default */
   }
@@ -41,7 +56,7 @@ export async function POST(req: Request) {
         { status: 503 }
       );
     }
-    const stream = runApiBrainStream(instruction, req.signal);
+    const stream = runApiBrainStream(instruction, req.signal, clientNotes);
     return new NextResponse(stream, {
       headers: {
         "content-type": "application/x-ndjson; charset=utf-8",

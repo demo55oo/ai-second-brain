@@ -23,15 +23,21 @@ Vercel and Netlify.
 
 ## One-click deploy
 
-> Buttons only ask for your **LLM API key**. `BRAIN_ENGINE=api` is already the
-> default — you do not set it. Supabase is optional.
+> Paste only your **LLM API key**. `BRAIN_ENGINE=api` is already the default.
+> On Vercel, the button also **creates a private Blob store** and injects
+> `BLOB_READ_WRITE_TOKEN` — you do **not** copy/paste a Blob token.
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fdemo55oo%2Fai-second-brain&env=AI_GATEWAY_API_KEY&envDescription=Paste%20your%20Vercel%20AI%20Gateway%20key%20(or%20set%20ANTHROPIC_API_KEY%20after%20deploy).%20BRAIN_ENGINE%20defaults%20to%20api%20%E2%80%94%20no%20need%20to%20add%20it.&envLink=https%3A%2F%2Fgithub.com%2Fdemo55oo%2Fai-second-brain%23environment-variables&project-name=ai-second-brain&repository-name=ai-second-brain)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fdemo55oo%2Fai-second-brain&env=AI_GATEWAY_API_KEY&envDescription=Paste%20your%20Vercel%20AI%20Gateway%20key%20(or%20set%20ANTHROPIC_API_KEY%20after%20deploy).%20Blob%20storage%20is%20created%20automatically%20%E2%80%94%20do%20not%20paste%20a%20Blob%20token.&envLink=https%3A%2F%2Fgithub.com%2Fdemo55oo%2Fai-second-brain%23environment-variables&project-name=ai-second-brain&repository-name=ai-second-brain&stores=%5B%7B%22type%22%3A%22blob%22%2C%22access%22%3A%22private%22%7D%5D)
 
 [![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/demo55oo/ai-second-brain)
 
 After deploy, open **Environment variables** and paste `AI_GATEWAY_API_KEY` **or**
-`ANTHROPIC_API_KEY`. Nothing else is required to chat.
+`ANTHROPIC_API_KEY`. Blob (Vercel) is provisioned by the button — the app detects
+`BLOB_READ_WRITE_TOKEN` automatically for `/brain` uploads.
+
+**Already deployed without Blob?** In the Vercel project: **Storage → Create → Blob**
+(private) → connect to this project. The token is injected for you — still no paste
+into the app. Then redeploy.
 
 ## Environment variables
 
@@ -40,7 +46,7 @@ After deploy, open **Environment variables** and paste `AI_GATEWAY_API_KEY` **or
 | `AI_GATEWAY_API_KEY` **or** `ANTHROPIC_API_KEY` | yes | Chat answers |
 | `AI_MODEL` | optional | Defaults internally; e.g. `anthropic/claude-sonnet-4-6` |
 | `BRAIN_ENGINE` | no | Defaults to `api` — do not set unless you want `cli` locally |
-| `BLOB_READ_WRITE_TOKEN` | for cloud uploads | Vercel Blob — upload markdown on Vercel/Netlify **without Supabase** |
+| `BLOB_READ_WRITE_TOKEN` | auto on Vercel Deploy | Injected when Blob store is created — **do not paste manually** |
 | `NEXT_PUBLIC_SUPABASE_URL` | optional | Only if you prefer Supabase vault |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | optional | Only with Supabase |
 | `SUPABASE_SERVICE_ROLE_KEY` | optional | Only with Supabase |
@@ -70,12 +76,25 @@ npm run dev
 
 Open <http://localhost:3000/jarvis-code> and ask a question. No Supabase needed.
 
+### Your knowledge
+
+| Where you run | What happens on upload |
+|---|---|
+| Local (`npm run dev`) | Merged into `content/knowledge/owner/BRAIN.md` |
+| Vercel (Deploy button) | Blob store **auto-created**; one `owner/BRAIN.md` in Blob — token injected, no paste |
+| Vercel (no Blob yet) | Browser fallback until you add Storage → Blob (or re-clone with the button) |
+| Optional Supabase | Cloud vault + embeddings (`0007` SQL) |
+
+That single `BRAIN.md` (disk or Blob) is what the AI reads. Uploads replace Danny.
+
 ## What works in this slim build
 
 | Feature | Status |
 |---|---|
 | AI Brain chat (`/jarvis-code`) | ✅ API engine — **no Supabase** |
 | Curated knowledge docs | ✅ `content/knowledge/*` |
+| Owner BRAIN.md (merged uploads) | ✅ local disk or Vercel Blob |
+| Browser vault (no Blob) | ✅ IndexedDB fallback |
 | Vault upload + semantic search | ⚪ optional (Supabase + `0007` SQL) |
 | Brand kit settings | ⚪ optional (Supabase brand_kits) |
 | Claude Code CLI / MCP / LinkedIn / Apify | ⏸ optional local only (`BRAIN_ENGINE=cli`) |
