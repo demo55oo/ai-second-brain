@@ -114,13 +114,27 @@ function VaultPanel({ open }: { open: boolean }) {
       Array.from(files).forEach((f) => fd.append("files", f));
       const res = await fetch("/api/brain/upload", { method: "POST", body: fd });
       const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error(data.error || "Upload failed");
-      toast.success(
-        data.replaced
-          ? `Replaced brain with ${data.documents ?? data.uploaded} notes · Danny demo off`
-          : `Indexed ${data.documents ?? data.uploaded} notes · ${data.chunks} chunks`
-      );
-      await refresh();
+      if (res.ok && data.ok) {
+        toast.success(
+          data.replaced
+            ? `Replaced brain with ${data.documents ?? data.uploaded} notes · Danny demo off`
+            : `Indexed ${data.documents ?? data.uploaded} notes · ${data.chunks} chunks`
+        );
+        await refresh();
+        return;
+      }
+      if (data.code === "USE_BROWSER_VAULT" || res.status === 503) {
+        const { fileToBrowserNote, saveBrowserVault } = await import("@/lib/browser-vault");
+        const notes = (
+          await Promise.all(Array.from(files).map((f) => fileToBrowserNote(f)))
+        ).filter((n): n is NonNullable<typeof n> => !!n);
+        if (!notes.length) throw new Error(data.error || "Upload failed");
+        await saveBrowserVault(notes);
+        toast.success(`Saved ${notes.length} notes in this browser (no Blob yet)`);
+        await refresh();
+        return;
+      }
+      throw new Error(data.error || "Upload failed");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Upload failed");
     } finally {
@@ -147,8 +161,8 @@ function VaultPanel({ open }: { open: boolean }) {
   return (
     <div data-lenis-prevent className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
       <p className="mb-4 max-w-xl text-[13px] leading-relaxed text-foreground/50">
-        Upload your markdown or vault zip. That becomes the <span className="text-foreground/80">only</span> brain
-        for chat — Danny&apos;s bundled profile is ignored. Without an upload, chat uses the demo knowledge docs.
+        Upload your markdown or vault zip. With Blob (auto from Deploy), it merges into{" "}
+        <span className="text-foreground/80">owner/BRAIN.md</span> on Blob — Danny demo turns off.
       </p>
 
       <div className="mb-5 grid grid-cols-3 gap-3">
@@ -255,9 +269,12 @@ function KnowledgePanel({ open }: { open: boolean }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ docType: active.docType, body: draft }),
       });
-      if (!res.ok) throw new Error();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Save failed");
       setDocs((prev) => prev.map((d) => (d.docType === active.docType ? { ...d, body: draft } : d)));
-      toast.success(`${active.title} saved`);
+      toast.success(
+        data.backend === "blob" ? `${active.title} saved to Blob` : `${active.title} saved`
+      );
     } catch {
       toast.error("Save failed");
     } finally {
@@ -463,8 +480,8 @@ function BrandingPanel({ open }: { open: boolean }) {
   return (
     <div data-lenis-prevent className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
       <p className="mb-4 text-[12px] leading-relaxed text-foreground/45">
-        Your visual identity. This drives how carousels and visuals are generated — the style spec is the locked look, and your
-        face shot lets the AI place your likeness on cover and closing slides.
+        Your visual identity. Saved to Vercel Blob when available (kit.json + face/logo). Drives carousels
+        and visuals — style spec is the locked look; face shot places your likeness on cover/closing slides.
       </p>
 
       {/* assets */}

@@ -1,11 +1,10 @@
 /**
- * Brand kits — the founder's visual identity for generated assets. A kit holds
- * the LOCKED carousel style spec, accent colour, header text, and the founder's
- * face/logo. The carousel generator injects the style spec into every gpt-image-2
- * prompt and passes the face as a reference image so the founder's likeness
- * appears (header avatar + cover/closing cutout) and the brand is consistent.
+ * Brand kits — the founder's visual identity for generated assets.
  *
- * Stored in Supabase `brand_kits` (seeded per client; the settings UI edits it).
+ * Storage (auto-detected):
+ * 1. Vercel Blob — branding/{client}/kit.json + face/logo (preferred when token set)
+ * 2. Supabase brand_kits + branding bucket (optional)
+ * 3. Disk fallback for face_path / reference.png
  */
 
 import fs from "node:fs/promises";
@@ -13,6 +12,13 @@ import path from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { RefImage } from "./openai-image";
 import { NO_EMDASH_RULE } from "./sanitize";
+import {
+  blobConfigured,
+  blobGetBytes,
+  blobGetText,
+  blobPutBytes,
+  blobPutText,
+} from "./blob-store";
 
 export type BrandKit = {
   client: string;
@@ -61,32 +67,89 @@ type Row = {
 const cache = new Map<string, { kit: BrandKit | null; at: number }>();
 const TTL = 60_000;
 
+function kitBlobPath(client: string) {
+  return `branding/${client}/kit.json`;
+}
+
+function assetBlobPath(client: string, kind: "face" | "logo", ext: string) {
+  return `branding/${client}/${kind}.${ext}`;
+}
+
+function rowToKit(r: Row): BrandKit {
+  return {
+    client: r.client,
+    displayName: r.display_name,
+    handle: r.handle,
+    tagline: r.tagline,
+    accentHex: r.accent_hex || "#ED1846",
+    styleSpec: r.style_spec || "",
+    facePath: r.face_path,
+    faceUrl: r.face_url,
+    logoPath: r.logo_path,
+    logoUrl: r.logo_url,
+    fonts: r.fonts,
+  };
+}
+
+async function readKitFromBlob(client: string): Promise<BrandKit | null> {
+  if (!blobConfigured()) return null;
+  const raw = await blobGetText(kitBlobPath(client));
+  if (!raw) return null;
+  try {
+    const r = JSON.parse(raw) as Row;
+    if (!r || r.client !== client) return null;
+    return rowToKit(r);
+  } catch {
+    return null;
+  }
+}
+
+async function writeKitToBlob(
+  client: string,
+  fields: BrandKitFields,
+  base?: BrandKit | null
+): Promise<boolean> {
+  const prev = base ?? (await readKitFromBlob(client));
+  const row: Row = {
+    client,
+    display_name: fields.display_name ?? prev?.displayName ?? null,
+    handle: fields.handle ?? prev?.handle ?? null,
+    tagline: fields.tagline ?? prev?.tagline ?? null,
+    accent_hex: fields.accent_hex ?? prev?.accentHex ?? "#ED1846",
+    style_spec: fields.style_spec ?? prev?.styleSpec ?? "",
+    face_path: fields.face_path ?? prev?.facePath ?? null,
+    face_url: fields.face_url ?? prev?.faceUrl ?? null,
+    logo_path: fields.logo_path ?? prev?.logoPath ?? null,
+    logo_url: fields.logo_url ?? prev?.logoUrl ?? null,
+    fonts: fields.fonts ?? prev?.fonts ?? null,
+  };
+  await blobPutText(kitBlobPath(client), JSON.stringify(row, null, 2), "application/json; charset=utf-8");
+  return true;
+}
+
 /** Load a client's brand kit (cached briefly). Returns null when none exists. */
 export async function getBrandKit(client: string): Promise<BrandKit | null> {
   const hit = cache.get(client);
   if (hit && Date.now() - hit.at < TTL) return hit.kit;
+
+  const fromBlob = await readKitFromBlob(client);
+  if (fromBlob) {
+    cache.set(client, { kit: fromBlob, at: Date.now() });
+    return fromBlob;
+  }
+
   const db = brandDb();
-  if (!db) return null;
+  if (!db) {
+    cache.set(client, { kit: null, at: Date.now() });
+    return null;
+  }
   try {
     const { data, error } = await db.from("brand_kits").select("*").eq("client", client).maybeSingle();
     if (error || !data) {
       cache.set(client, { kit: null, at: Date.now() });
       return null;
     }
-    const r = data as Row;
-    const kit: BrandKit = {
-      client: r.client,
-      displayName: r.display_name,
-      handle: r.handle,
-      tagline: r.tagline,
-      accentHex: r.accent_hex || "#ED1846",
-      styleSpec: r.style_spec || "",
-      facePath: r.face_path,
-      faceUrl: r.face_url,
-      logoPath: r.logo_path,
-      logoUrl: r.logo_url,
-      fonts: r.fonts,
-    };
+    const kit = rowToKit(data as Row);
     cache.set(client, { kit, at: Date.now() });
     return kit;
   } catch {
@@ -94,47 +157,92 @@ export async function getBrandKit(client: string): Promise<BrandKit | null> {
   }
 }
 
-/** Load the founder's face bytes — Storage URL preferred (deploy-safe), disk fallback. */
+/** Load the founder's face bytes — Blob path, then URL, then disk. */
 export async function loadBrandFace(kit: BrandKit): Promise<RefImage | null> {
-  if (kit.faceUrl) {
+  if (kit.facePath) {
+    const fromBlob = await blobGetBytes(kit.facePath);
+    if (fromBlob) {
+      return { data: fromBlob.data, name: "face.png", type: fromBlob.contentType || "image/png" };
+    }
+  }
+  if (kit.faceUrl && !kit.faceUrl.startsWith("/")) {
     try {
       const res = await fetch(kit.faceUrl);
       if (res.ok) {
-        return { data: new Uint8Array(await res.arrayBuffer()), name: "face.png", type: res.headers.get("content-type") || "image/png" };
+        return {
+          data: new Uint8Array(await res.arrayBuffer()),
+          name: "face.png",
+          type: res.headers.get("content-type") || "image/png",
+        };
       }
     } catch {
-      /* fall through to disk */
+      /* fall through */
     }
   }
-  if (kit.facePath) {
+  if (kit.facePath && !kit.facePath.startsWith("branding/")) {
     try {
       const abs = path.isAbsolute(kit.facePath) ? kit.facePath : path.join(process.cwd(), kit.facePath);
       const buf = await fs.readFile(abs);
       return { data: new Uint8Array(buf), name: "face.png", type: "image/png" };
     } catch {
-      /* no asset available */
+      /* no asset */
     }
   }
   return null;
 }
 
-/**
- * The locked STYLE-REFERENCE image (the founder's canonical carousel cover). Passed
- * as a brand-template ref on EVERY slide gen call so the header + slide number
- * reproduce exactly. Read from disk (committed + traced into the function bundle
- * via next.config outputFileTracingIncludes).
- */
+export async function loadBrandLogo(kit: BrandKit): Promise<RefImage | null> {
+  if (kit.logoPath) {
+    const fromBlob = await blobGetBytes(kit.logoPath);
+    if (fromBlob) {
+      return { data: fromBlob.data, name: "logo.png", type: fromBlob.contentType || "image/png" };
+    }
+  }
+  if (kit.logoUrl && !kit.logoUrl.startsWith("/")) {
+    try {
+      const res = await fetch(kit.logoUrl);
+      if (res.ok) {
+        return {
+          data: new Uint8Array(await res.arrayBuffer()),
+          name: "logo.png",
+          type: res.headers.get("content-type") || "image/png",
+        };
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+  if (kit.logoPath && !kit.logoPath.startsWith("branding/")) {
+    try {
+      const abs = path.isAbsolute(kit.logoPath) ? kit.logoPath : path.join(process.cwd(), kit.logoPath);
+      const buf = await fs.readFile(abs);
+      return { data: new Uint8Array(buf), name: "logo.png", type: "image/png" };
+    } catch {
+      /* none */
+    }
+  }
+  return null;
+}
+
+/** Style-reference image: disk first, then Blob. */
 export async function loadBrandTemplate(client: string): Promise<RefImage | null> {
   try {
     const abs = path.join(process.cwd(), "content", "branding", client, "reference.png");
     const buf = await fs.readFile(abs);
     return { data: new Uint8Array(buf), name: "style-reference.png", type: "image/png" };
   } catch {
-    return null;
+    /* try blob */
   }
+  const fromBlob = await blobGetBytes(`branding/${client}/reference.png`);
+  if (fromBlob) {
+    return {
+      data: fromBlob.data,
+      name: "style-reference.png",
+      type: fromBlob.contentType || "image/png",
+    };
+  }
+  return null;
 }
-
-/* --------------------------- writes (settings UI) --------------------------- */
 
 export type BrandKitFields = Partial<{
   display_name: string;
@@ -150,12 +258,27 @@ export type BrandKitFields = Partial<{
   notes: string;
 }>;
 
-/** Upsert a client's brand-kit fields (settings UI). Busts the read cache. */
+/** Upsert brand-kit fields. Blob preferred; Supabase optional mirror. */
 export async function saveBrandKit(client: string, fields: BrandKitFields): Promise<boolean> {
+  cache.delete(client);
+
+  if (blobConfigured()) {
+    try {
+      await writeKitToBlob(client, fields);
+      const db = brandDb();
+      if (db) {
+        await db.from("brand_kits").upsert({ client, ...fields }, { onConflict: "client" });
+      }
+      return true;
+    } catch (err) {
+      console.error("[brand-kit] blob save failed:", err);
+      return false;
+    }
+  }
+
   const db = brandDb();
   if (!db) return false;
   const { error } = await db.from("brand_kits").upsert({ client, ...fields }, { onConflict: "client" });
-  cache.delete(client);
   if (error) {
     console.error("[brand-kit] save failed:", error.message);
     return false;
@@ -165,8 +288,7 @@ export async function saveBrandKit(client: string, fields: BrandKitFields): Prom
 
 const BRANDING_BUCKET = "branding";
 
-/** Upload a face/logo asset to Supabase Storage (public) and point the kit at its URL.
- *  Deploy-safe (no disk writes). Unique filename busts the CDN cache on replace. */
+/** Upload face/logo to Blob (preferred) or Supabase Storage. */
 export async function saveBrandAsset(
   client: string,
   kind: "face" | "logo",
@@ -174,16 +296,44 @@ export async function saveBrandAsset(
   ext: string,
   contentType?: string
 ): Promise<string | null> {
+  const safeExt = (ext || "png").replace(/[^a-z0-9]/gi, "").toLowerCase() || "png";
+  const ct =
+    contentType ||
+    (safeExt === "jpg" || safeExt === "jpeg"
+      ? "image/jpeg"
+      : safeExt === "webp"
+        ? "image/webp"
+        : "image/png");
+
+  if (blobConfigured()) {
+    try {
+      const objectPath = assetBlobPath(client, kind, safeExt);
+      await blobPutBytes(objectPath, bytes, ct);
+      const proxyUrl = `/api/studio/brand/asset?kind=${kind}`;
+      await saveBrandKit(
+        client,
+        kind === "face"
+          ? { face_path: objectPath, face_url: proxyUrl }
+          : { logo_path: objectPath, logo_url: proxyUrl }
+      );
+      return proxyUrl;
+    } catch (err) {
+      console.error("[brand-kit] blob asset upload failed:", err);
+      return null;
+    }
+  }
+
   const db = brandDb();
   if (!db) return null;
   try {
-    const safeExt = (ext || "png").replace(/[^a-z0-9]/gi, "").toLowerCase() || "png";
-    const ct = contentType || (safeExt === "jpg" || safeExt === "jpeg" ? "image/jpeg" : safeExt === "webp" ? "image/webp" : "image/png");
     const stamp = Date.now().toString(36) + Math.floor(performance.now()).toString(36);
     const objectPath = `${client}/${kind}-${stamp}.${safeExt}`;
     const { error: upErr } = await db.storage
       .from(BRANDING_BUCKET)
-      .upload(objectPath, new Blob([bytes as unknown as BlobPart], { type: ct }), { contentType: ct, upsert: true });
+      .upload(objectPath, new Blob([bytes as unknown as BlobPart], { type: ct }), {
+        contentType: ct,
+        upsert: true,
+      });
     if (upErr) throw upErr;
     const url = db.storage.from(BRANDING_BUCKET).getPublicUrl(objectPath).data.publicUrl;
     await saveBrandKit(client, kind === "face" ? { face_url: url } : { logo_url: url });
@@ -194,9 +344,23 @@ export async function saveBrandAsset(
   }
 }
 
+/** Resolve face/logo bytes for the asset GET proxy. */
+export async function loadBrandAssetBytes(
+  client: string,
+  kind: "face" | "logo"
+): Promise<{ data: Uint8Array; contentType: string } | null> {
+  const kit = await getBrandKit(client);
+  if (!kit) return null;
+  if (kind === "face") {
+    const img = await loadBrandFace(kit);
+    return img ? { data: img.data, contentType: img.type || "image/png" } : null;
+  }
+  const img = await loadBrandLogo(kit);
+  return img ? { data: img.data, contentType: img.type || "image/png" } : null;
+}
+
 export type SlideRole = "cover" | "content" | "closing";
 
-/** First slide = cover, last = closing, middle = content. */
 export function slideRole(index: number, total: number): SlideRole {
   if (index === 0) return "cover";
   if (index === total - 1) return "closing";
@@ -205,12 +369,6 @@ export function slideRole(index: number, total: number): SlideRole {
 
 export type SlideLayout = "split" | "stacked" | "statement";
 
-/**
- * Build the gpt-image-2 prompt for ONE on-brand slide: the locked style spec +
- * the slide's LAYOUT (so text and visuals sit in separate regions, never text
- * dumped over an image), verbatim copy, and the concrete visual elements / real
- * official logos. Cover & closing slides are heroes with the founder's cutout.
- */
 export function brandCarouselSlidePrompt(args: {
   kit: BrandKit;
   index: number;
@@ -222,15 +380,11 @@ export function brandCarouselSlidePrompt(args: {
   visual: string;
   logos: string[];
   topic: string;
-  /** true when the founder's canonical carousel is attached as a style ref */
   styleRef?: boolean;
 }): string {
   const { kit, index, total, role, layout, title, body, visual, logos, topic, styleRef } = args;
   const who = kit.displayName || "the founder";
   const tagline = kit.tagline || "";
-
-  // REPEATABLE ELEMENTS — described explicitly + identically so the branding
-  // renders the same on every slide (one cohesive template, not a redesign each time).
   const accent = kit.accentHex;
   const repeatable =
     `REPEATABLE TEMPLATE ELEMENTS. These five elements form a FIXED template on a 1088x1360 portrait (4:5) canvas. Every one must render PIXEL-IDENTICALLY on EVERY slide: the same exact position, size, font, weight, colour and shape, with ONLY the slide-number digit changing. Reproduce each precisely, with zero creative variation and zero guesswork:\n` +

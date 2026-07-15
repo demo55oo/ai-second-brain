@@ -25,7 +25,11 @@ export async function PUT(req: Request) {
     const ok = await saveBrandKit(APP_CLIENT, body.fields as Parameters<typeof saveBrandKit>[1]);
     if (!ok) {
       return NextResponse.json(
-        { ok: false, error: "Supabase not configured or save failed" },
+        {
+          ok: false,
+          error:
+            "Save failed — need Blob (Deploy button) or Supabase brand_kits. No storage configured.",
+        },
         { status: 503 }
       );
     }

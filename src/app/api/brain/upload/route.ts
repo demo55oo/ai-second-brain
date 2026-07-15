@@ -22,14 +22,14 @@ export const maxDuration = 300;
 
 /**
  * POST /api/brain/upload
- * Prefer Supabase when configured; else merge into one BRAIN.md on disk
- * or Vercel Blob (auto-provisioned by the Deploy button — no token paste).
- * Last resort: USE_BROWSER_VAULT for IndexedDB on this device.
+ * Prefer Blob/disk BRAIN.md when available (Deploy button auto-provisions Blob).
+ * Else Supabase vault. Last resort: USE_BROWSER_VAULT.
  */
 export async function POST(req: Request) {
   try {
     const url = new URL(req.url);
     const useSupabase = vaultBackendReady();
+    const useOwnerStore = ownerKnowledgeWritable();
 
     if (url.searchParams.get("seed") === "1") {
       if (!useSupabase) {
@@ -43,7 +43,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, ...result, stats, mode: "supabase" });
     }
 
-    if (!useSupabase && !ownerKnowledgeWritable()) {
+    if (!useOwnerStore && !useSupabase) {
       return NextResponse.json(
         {
           ok: false,
@@ -92,39 +92,40 @@ export async function POST(req: Request) {
       );
     }
 
-    if (useSupabase) {
-      const cleared = await clearVault(APP_CLIENT);
-      const result = await upsertVaultNotes(notes, APP_CLIENT);
-      const stats = await getVaultStats();
+    // Blob / local BRAIN.md first so uploads always land in Blob when provisioned.
+    if (useOwnerStore) {
+      const result = await saveOwnerNotes(
+        notes.map((n) => ({
+          filename: path.basename(n.path),
+          raw: `---\ntitle: ${JSON.stringify(n.title)}\n---\n\n${n.body}\n`,
+        }))
+      );
+      const owner = await listOwnerNotes();
       return NextResponse.json({
         ok: true,
-        mode: "supabase",
+        mode: result.backend,
         uploaded: notes.length,
         replaced: true,
-        cleared,
-        ...result,
-        stats,
-        client: APP_CLIENT,
+        documents: result.documents,
+        chunks: result.documents,
+        path: result.path,
+        stats: { documents: owner.length, chunks: owner.length, folders: 1 },
+        client: "owner",
       });
     }
 
-    const result = await saveOwnerNotes(
-      notes.map((n) => ({
-        filename: path.basename(n.path),
-        raw: `---\ntitle: ${JSON.stringify(n.title)}\n---\n\n${n.body}\n`,
-      }))
-    );
-    const owner = await listOwnerNotes();
+    const cleared = await clearVault(APP_CLIENT);
+    const result = await upsertVaultNotes(notes, APP_CLIENT);
+    const stats = await getVaultStats();
     return NextResponse.json({
       ok: true,
-      mode: result.backend,
+      mode: "supabase",
       uploaded: notes.length,
       replaced: true,
-      documents: result.documents,
-      chunks: result.documents,
-      path: result.path,
-      stats: { documents: owner.length, chunks: owner.length, folders: 1 },
-      client: "owner",
+      cleared,
+      ...result,
+      stats,
+      client: APP_CLIENT,
     });
   } catch (err) {
     console.error("[brain/upload]", err);

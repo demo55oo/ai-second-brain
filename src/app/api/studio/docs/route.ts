@@ -42,9 +42,22 @@ export async function PUT(req: Request) {
     }
     const result = await writeBusinessDoc({ docType: body.docType, body: body.body });
     if (!result.ok) {
-      return NextResponse.json({ ok: false, error: "document not found" }, { status: 404 });
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Save failed — need Blob (Deploy button) or a writable disk. Document may be missing.",
+        },
+        { status: 503 }
+      );
     }
-    return NextResponse.json({ ok: true, client: result.client, title: result.title, summary: result.summary });
+    return NextResponse.json({
+      ok: true,
+      client: result.client,
+      title: result.title,
+      summary: result.summary,
+      backend: result.backend,
+    });
   } catch (err) {
     return NextResponse.json(
       { ok: false, error: err instanceof Error ? err.message : String(err) },

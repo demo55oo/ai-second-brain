@@ -1,3 +1,9 @@
+/**
+ * Client knowledge — the student's ingested business-doc set.
+ *
+ * Notes live at content/knowledge/<client>/knowledge/<doc_type>.md (bundled demo)
+ * and can be overridden on Vercel Blob at knowledge/<client>/<doc_type>.md.
+ */
 import fs from "node:fs/promises";
 import path from "node:path";
 import matter from "gray-matter";
@@ -9,22 +15,7 @@ import {
   isDocType,
 } from "./knowledge-map";
 import { APP_CLIENT } from "./client";
-
-/**
- * Client knowledge — the student's ingested business-doc set.
- *
- * Notes live at content/knowledge/<client>/<doc_type>.md with routing
- * frontmatter (doc_type, authority, serves_agents, answers, provides, ...).
- * This module reads + parses them and provides AGENT-SCOPED retrieval so each
- * agent only looks where its knowledge-map scope says to look.
- *
- *   listBusinessDocs({ agent })   — the manifest: what exists + what it answers
- *   readBusinessDoc({ docType })  — one full document
- *   searchBusinessDocs({ query }) — scoped keyword search across documents
- *
- * Source of truth is the frontmatter on disk (bundled with the deployment).
- * The `knowledge_docs` Supabase table is a queryable mirror, not required here.
- */
+import { blobConfigured, blobGetText, blobList, blobPutText } from "./blob-store";
 
 export type BusinessDoc = {
   docType: DocType;
@@ -46,15 +37,38 @@ const TTL_MS = 60_000;
 
 type Cache = { docs: BusinessDoc[]; loadedAt: number };
 const cacheByClient = new Map<string, Cache>();
-/** The active client. Single-tenant: there is exactly one (APP_CLIENT), so no env needed. */
+
 export async function defaultClient(): Promise<string> {
   return APP_CLIENT;
 }
 
-async function loadDocs(client: string): Promise<BusinessDoc[]> {
-  const cached = cacheByClient.get(client);
-  if (cached && Date.now() - cached.loadedAt < TTL_MS) return cached.docs;
+function parseDocRaw(client: string, file: string, raw: string, storagePath: string): BusinessDoc | null {
+  try {
+    const { data, content } = matter(raw);
+    const dt = String(data.doc_type || file.replace(/\.md$/i, ""));
+    if (!isDocType(dt)) return null;
+    return {
+      docType: dt,
+      title: String(data.title || KNOWLEDGE_MAP[dt].label),
+      client,
+      authority: Number(data.authority ?? KNOWLEDGE_MAP[dt].authority),
+      servesAgents: Array.isArray(data.serves_agents)
+        ? data.serves_agents.map(String)
+        : KNOWLEDGE_MAP[dt].servesAgents,
+      answers: Array.isArray(data.answers) ? data.answers.map(String) : KNOWLEDGE_MAP[dt].answers,
+      provides: Array.isArray(data.provides) ? data.provides.map(String) : [],
+      pillars: Array.isArray(data.pillars) ? data.pillars.map(String) : [],
+      summary: String(data.summary || KNOWLEDGE_MAP[dt].summary),
+      sourceFile: String(data.source_file || file),
+      body: content.trim(),
+      storagePath,
+    };
+  } catch {
+    return null;
+  }
+}
 
+async function loadDocsFromDisk(client: string): Promise<BusinessDoc[]> {
   const dir = path.join(KNOWLEDGE_ROOT, client, "knowledge");
   let files: string[] = [];
   try {
@@ -62,34 +76,43 @@ async function loadDocs(client: string): Promise<BusinessDoc[]> {
   } catch {
     files = [];
   }
-
   const docs: BusinessDoc[] = [];
   for (const file of files) {
     try {
       const raw = await fs.readFile(path.join(dir, file), "utf8");
-      const { data, content } = matter(raw);
-      const dt = String(data.doc_type || "");
-      if (!isDocType(dt)) continue;
-      docs.push({
-        docType: dt,
-        title: String(data.title || KNOWLEDGE_MAP[dt].label),
-        client,
-        authority: Number(data.authority ?? KNOWLEDGE_MAP[dt].authority),
-        servesAgents: Array.isArray(data.serves_agents) ? data.serves_agents.map(String) : KNOWLEDGE_MAP[dt].servesAgents,
-        answers: Array.isArray(data.answers) ? data.answers.map(String) : KNOWLEDGE_MAP[dt].answers,
-        provides: Array.isArray(data.provides) ? data.provides.map(String) : [],
-        pillars: Array.isArray(data.pillars) ? data.pillars.map(String) : [],
-        summary: String(data.summary || KNOWLEDGE_MAP[dt].summary),
-        sourceFile: String(data.source_file || file),
-        body: content.trim(),
-        storagePath: `content/knowledge/${client}/knowledge/${file}`,
-      });
+      const doc = parseDocRaw(client, file, raw, `content/knowledge/${client}/knowledge/${file}`);
+      if (doc) docs.push(doc);
     } catch {
-      // skip unreadable
+      /* skip */
     }
   }
-  // Highest authority first so the most canonical docs surface first.
-  docs.sort((a, b) => b.authority - a.authority);
+  return docs;
+}
+
+async function loadDocsFromBlob(client: string): Promise<BusinessDoc[]> {
+  if (!blobConfigured()) return [];
+  const prefix = `knowledge/${client}/`;
+  const paths = (await blobList(prefix)).filter((p) => p.endsWith(".md"));
+  const docs: BusinessDoc[] = [];
+  for (const p of paths) {
+    const raw = await blobGetText(p);
+    if (!raw) continue;
+    const file = path.basename(p);
+    const doc = parseDocRaw(client, file, raw, p);
+    if (doc) docs.push(doc);
+  }
+  return docs;
+}
+
+async function loadDocs(client: string): Promise<BusinessDoc[]> {
+  const cached = cacheByClient.get(client);
+  if (cached && Date.now() - cached.loadedAt < TTL_MS) return cached.docs;
+
+  const byType = new Map<DocType, BusinessDoc>();
+  for (const d of await loadDocsFromDisk(client)) byType.set(d.docType, d);
+  for (const d of await loadDocsFromBlob(client)) byType.set(d.docType, d);
+
+  const docs = Array.from(byType.values()).sort((a, b) => b.authority - a.authority);
   cacheByClient.set(client, { docs, loadedAt: Date.now() });
   return docs;
 }
@@ -97,20 +120,15 @@ async function loadDocs(client: string): Promise<BusinessDoc[]> {
 function resolveScope(opts: { agent?: AgentKey; docTypes?: DocType[] }): DocType[] | null {
   if (opts.docTypes && opts.docTypes.length) return opts.docTypes;
   if (opts.agent) return AGENT_KNOWLEDGE_SCOPE[opts.agent] ?? null;
-  return null; // null = all
+  return null;
 }
 
-/**
- * The manifest an agent reads to decide WHERE TO LOOK: each in-scope document,
- * what it is, and the questions it answers — plus whether it's actually been
- * ingested yet for this client.
- */
 export async function listBusinessDocs(opts: { agent?: AgentKey; client?: string } = {}) {
   const client = opts.client || (await defaultClient());
   const docs = await loadDocs(client);
   const have = new Map(docs.map((d) => [d.docType, d]));
   const scope = resolveScope(opts);
-  const types = (scope ?? (Object.keys(KNOWLEDGE_MAP) as DocType[]));
+  const types = scope ?? (Object.keys(KNOWLEDGE_MAP) as DocType[]);
   return {
     client,
     documents: types.map((dt) => {
@@ -128,10 +146,6 @@ export async function listBusinessDocs(opts: { agent?: AgentKey; client?: string
   };
 }
 
-/**
- * The full parsed doc set for a client (title, pillars, authority, scope, …) —
- * used by the brain-graph builder. Returns the resolved client slug too.
- */
 export async function loadClientDocsForBrain(
   client?: string
 ): Promise<{ client: string; docs: BusinessDoc[] }> {
@@ -159,30 +173,75 @@ export async function readBusinessDoc(opts: { docType: DocType; client?: string 
 }
 
 /**
- * Overwrite the BODY of a doc on disk, preserving its frontmatter. Used by the
- * settings editor so a founder can correct what an agent reads. Busts the cache
- * so the next read (and the next agent turn) sees the edit. Returns the updated
- * summary/title for the mirror row.
+ * Overwrite a doc body. Prefers Blob when configured (deploy-safe);
+ * otherwise writes disk when writable.
  */
 export async function writeBusinessDoc(opts: {
   docType: DocType;
   body: string;
   client?: string;
-}): Promise<{ ok: boolean; client: string; title?: string; summary?: string }> {
+}): Promise<{ ok: boolean; client: string; title?: string; summary?: string; backend?: string }> {
   const client = opts.client || (await defaultClient());
   const docs = await loadDocs(client);
-  const doc = docs.find((d) => d.docType === opts.docType);
+  let doc = docs.find((d) => d.docType === opts.docType);
+
+  const meta = KNOWLEDGE_MAP[opts.docType];
+  if (!doc && meta) {
+    doc = {
+      docType: opts.docType,
+      title: meta.label,
+      client,
+      authority: meta.authority,
+      servesAgents: meta.servesAgents,
+      answers: meta.answers,
+      provides: [],
+      pillars: [],
+      summary: meta.summary,
+      sourceFile: `${opts.docType}.md`,
+      body: "",
+      storagePath: `knowledge/${client}/${opts.docType}.md`,
+    };
+  }
   if (!doc) return { ok: false, client };
 
-  const file = path.basename(doc.storagePath);
-  const full = path.join(KNOWLEDGE_ROOT, client, "knowledge", file);
-  const raw = await fs.readFile(full, "utf8");
-  const { data } = matter(raw);
-  const next = matter.stringify(opts.body.trim() + "\n", data);
-  await fs.writeFile(full, next, "utf8");
+  const frontmatter = {
+    title: doc.title,
+    doc_type: doc.docType,
+    authority: doc.authority,
+    serves_agents: doc.servesAgents,
+    answers: doc.answers,
+    provides: doc.provides,
+    pillars: doc.pillars,
+    summary: doc.summary,
+    source_file: doc.sourceFile,
+  };
+  const next = matter.stringify(opts.body.trim() + "\n", frontmatter);
 
-  cacheByClient.delete(client); // force re-parse on next read
-  return { ok: true, client, title: doc.title, summary: doc.summary };
+  if (blobConfigured()) {
+    const blobPath = `knowledge/${client}/${opts.docType}.md`;
+    await blobPutText(blobPath, next, "text/markdown; charset=utf-8");
+    cacheByClient.delete(client);
+    return { ok: true, client, title: doc.title, summary: doc.summary, backend: "blob" };
+  }
+
+  const file = `${opts.docType}.md`;
+  const full = path.join(KNOWLEDGE_ROOT, client, "knowledge", file);
+  try {
+    await fs.mkdir(path.dirname(full), { recursive: true });
+    let data = frontmatter;
+    try {
+      const raw = await fs.readFile(full, "utf8");
+      data = { ...matter(raw).data, ...frontmatter } as typeof frontmatter;
+    } catch {
+      /* new file */
+    }
+    await fs.writeFile(full, matter.stringify(opts.body.trim() + "\n", data), "utf8");
+    cacheByClient.delete(client);
+    return { ok: true, client, title: doc.title, summary: doc.summary, backend: "disk" };
+  } catch (err) {
+    console.error("[client-knowledge] disk write failed:", err);
+    return { ok: false, client };
+  }
 }
 
 export type DocSearchHit = {
@@ -194,11 +253,6 @@ export type DocSearchHit = {
   excerpt: string;
 };
 
-/**
- * Scoped keyword search. Title/answers/summary are weighted above body so a
- * question like "how do I sound" still routes toward voice-dna. When no docTypes
- * or agent scope is given, searches all documents for this client.
- */
 export async function searchBusinessDocs(opts: {
   query: string;
   agent?: AgentKey;
@@ -211,18 +265,28 @@ export async function searchBusinessDocs(opts: {
   const scope = resolveScope(opts);
   const pool = scope ? all.filter((d) => scope.includes(d.docType)) : all;
 
-  const terms = opts.query.toLowerCase().split(/[^\w]+/).filter((t) => t.length > 2);
+  const terms = opts.query
+    .toLowerCase()
+    .split(/[^\w]+/)
+    .filter((t) => t.length > 2);
   const limit = opts.limit ?? 5;
 
   const scored = pool.map((d) => {
-    const high = (d.title + "\n" + d.summary + "\n" + d.answers.join("\n") + "\n" + d.provides.join(" ")).toLowerCase();
+    const high = (
+      d.title +
+      "\n" +
+      d.summary +
+      "\n" +
+      d.answers.join("\n") +
+      "\n" +
+      d.provides.join(" ")
+    ).toLowerCase();
     const body = d.body.toLowerCase();
     let score = 0;
     for (const t of terms) {
       score += (high.match(new RegExp(t, "g")) || []).length * 6;
       score += (body.match(new RegExp(t, "g")) || []).length;
     }
-    // Gentle authority prior so ties resolve toward canonical docs.
     score += d.authority * 0.5;
     return { d, score };
   });

@@ -46,7 +46,7 @@ into the app. Then redeploy.
 | `AI_GATEWAY_API_KEY` **or** `ANTHROPIC_API_KEY` | yes | Chat answers |
 | `AI_MODEL` | optional | Defaults internally; e.g. `anthropic/claude-sonnet-4-6` |
 | `BRAIN_ENGINE` | no | Defaults to `api` — do not set unless you want `cli` locally |
-| `BLOB_READ_WRITE_TOKEN` | auto on Vercel Deploy | Injected when Blob store is created — **do not paste manually** |
+| `BLOB_READ_WRITE_TOKEN` | auto on Vercel Deploy | Injected when Blob store is created — **do not paste manually**. Powers BRAIN.md, brand kit, and knowledge doc saves |
 | `NEXT_PUBLIC_SUPABASE_URL` | optional | Only if you prefer Supabase vault |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | optional | Only with Supabase |
 | `SUPABASE_SERVICE_ROLE_KEY` | optional | Only with Supabase |

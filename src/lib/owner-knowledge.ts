@@ -12,6 +12,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import matter from "gray-matter";
+import { blobConfigured, blobGetText, blobPutText } from "./blob-store";
 
 export const OWNER_CLIENT = "owner";
 export const BRAIN_FILENAME = "BRAIN.md";
@@ -31,13 +32,11 @@ export type OwnerNote = {
 
 export type OwnerBackend = "disk" | "blob" | "none";
 
+export { blobConfigured };
+
 function diskWritable(): boolean {
   if (process.env.VERCEL || process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME) return false;
   return true;
-}
-
-export function blobConfigured(): boolean {
-  return !!process.env.BLOB_READ_WRITE_TOKEN;
 }
 
 export function ownerKnowledgeWritable(): boolean {
@@ -112,42 +111,12 @@ function stripFrontmatter(raw: string): string {
 
 async function readBrainFromBlob(): Promise<string | null> {
   if (!blobConfigured()) return null;
-  try {
-    const { get } = await import("@vercel/blob");
-    const result = await get(BRAIN_BLOB_PATH, {
-      access: "private",
-      token: process.env.BLOB_READ_WRITE_TOKEN,
-    });
-    if (!result || result.statusCode !== 200 || !result.stream) return null;
-    const text = await new Response(result.stream).text();
-    return text.trim() ? text : null;
-  } catch {
-    // Older SDK / missing blob — try list + fetch
-    try {
-      const { head } = await import("@vercel/blob");
-      const info = await head(BRAIN_BLOB_PATH, { token: process.env.BLOB_READ_WRITE_TOKEN });
-      if (!info?.url) return null;
-      const res = await fetch(info.url, {
-        headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` },
-      });
-      if (!res.ok) return null;
-      const text = await res.text();
-      return text.trim() ? text : null;
-    } catch {
-      return null;
-    }
-  }
+  const text = await blobGetText(BRAIN_BLOB_PATH);
+  return text?.trim() ? text : null;
 }
 
 async function writeBrainToBlob(markdown: string): Promise<void> {
-  const { put } = await import("@vercel/blob");
-  await put(BRAIN_BLOB_PATH, markdown, {
-    access: "private",
-    addRandomSuffix: false,
-    allowOverwrite: true,
-    contentType: "text/markdown; charset=utf-8",
-    token: process.env.BLOB_READ_WRITE_TOKEN,
-  });
+  await blobPutText(BRAIN_BLOB_PATH, markdown, "text/markdown; charset=utf-8");
 }
 
 export async function readOwnerBrainMarkdown(): Promise<string | null> {
