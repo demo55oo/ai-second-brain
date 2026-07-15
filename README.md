@@ -50,7 +50,7 @@ into the app. Then redeploy.
 | `NEXT_PUBLIC_SUPABASE_URL` | optional | Only if you prefer Supabase vault |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | optional | Only with Supabase |
 | `SUPABASE_SERVICE_ROLE_KEY` | optional | Only with Supabase |
-| `OPENAI_API_KEY` | optional | Embeddings if using Supabase vault without gateway |
+| `OPENAI_API_KEY` | optional | Embeddings / direct OpenAI images. **Carousel slides also work with `AI_GATEWAY_API_KEY` alone** |
 | `APP_URL` | optional | Public site URL |
 
 Copy [`.env.example`](./.env.example) locally as `.env.local`.

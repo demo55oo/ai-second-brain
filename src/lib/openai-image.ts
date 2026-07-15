@@ -1,29 +1,46 @@
 /**
- * OpenAI image generation (gpt-image). Used to render real carousel slide
- * visuals from per-slide art direction — the same shape as lollo's nano-banana
- * pipeline (write an image prompt per slide, then generate), but on OpenAI's
- * image model. Set OPENAI_API_KEY (and optionally OPENAI_IMAGE_MODEL /
- * OPENAI_IMAGE_QUALITY) in the env. Degrades gracefully to null so a run still
- * completes with text-only slides when no key is present.
+ * Image generation for carousel slides (gpt-image via OpenAI or Vercel AI Gateway).
+ *
+ * Auth (either works):
+ * - OPENAI_API_KEY → api.openai.com
+ * - AI_GATEWAY_API_KEY → ai-gateway.vercel.sh (no separate OpenAI key needed)
  */
 
-const ENDPOINT = "https://api.openai.com/v1/images/generations";
-const EDIT_ENDPOINT = "https://api.openai.com/v1/images/edits";
+const OPENAI_GEN = "https://api.openai.com/v1/images/generations";
+const OPENAI_EDIT = "https://api.openai.com/v1/images/edits";
+const GATEWAY_GEN = "https://ai-gateway.vercel.sh/v1/images/generations";
+const GATEWAY_EDIT = "https://ai-gateway.vercel.sh/v1/images/edits";
 
-// gpt-image-2 accepts any size where BOTH dims are divisible by 16. 1088x1360 is
-// the exact 4:5 portrait (the founder's carousel format); 1024x1536 is 2:3.
 export type ImageSize = "1024x1024" | "1024x1536" | "1088x1360" | "1536x1024" | "auto";
 
+function imageAuth(): { key: string; via: "openai" | "gateway" } | null {
+  const openai = process.env.OPENAI_API_KEY?.trim();
+  if (openai) return { key: openai, via: "openai" };
+  const gateway = process.env.AI_GATEWAY_API_KEY?.trim();
+  if (gateway) return { key: gateway, via: "gateway" };
+  return null;
+}
+
 export function imageModelConfigured(): boolean {
-  return Boolean(process.env.OPENAI_API_KEY);
+  return imageAuth() !== null;
+}
+
+function endpoints(via: "openai" | "gateway") {
+  return via === "gateway"
+    ? { gen: GATEWAY_GEN, edit: GATEWAY_EDIT }
+    : { gen: OPENAI_GEN, edit: OPENAI_EDIT };
+}
+
+function imageModel(via: "openai" | "gateway") {
+  const raw = process.env.OPENAI_IMAGE_MODEL || "gpt-image-2";
+  if (via === "gateway" && !raw.includes("/")) return `openai/${raw}`;
+  return raw;
 }
 
 export type RefImage = { data: Uint8Array | Buffer; name?: string; type?: string };
 
 /**
- * Generate one image FROM reference images (gpt-image-2 edits endpoint). The refs
- * are used as likeness/style context — e.g. the founder's face shot so they
- * appear on cover/closing slides, plus a brand style frame for consistency.
+ * Generate one image FROM reference images (gpt-image edits endpoint).
  * Returns a `data:` URL, or null if unavailable/failed.
  */
 export async function generateImageWithRefs(
@@ -31,10 +48,12 @@ export async function generateImageWithRefs(
   refs: RefImage[],
   opts?: { size?: ImageSize; quality?: "low" | "medium" | "high" | "auto" }
 ): Promise<string | null> {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) return null;
+  const auth = imageAuth();
+  if (!auth) return null;
   if (!refs.length) return generateImage(prompt, opts);
-  const model = process.env.OPENAI_IMAGE_MODEL || "gpt-image-2";
+
+  const { gen: _g, edit } = endpoints(auth.via);
+  const model = imageModel(auth.via);
   const quality = opts?.quality || (process.env.OPENAI_IMAGE_QUALITY as "high") || "high";
   try {
     const form = new FormData();
@@ -45,19 +64,23 @@ export async function generateImageWithRefs(
     form.append("n", "1");
     refs.forEach((r, i) => {
       const bytes = r.data instanceof Uint8Array ? r.data : new Uint8Array(r.data);
-      // cast: a Uint8Array is a valid BlobPart at runtime; TS's generic ArrayBufferLike trips here
       const blob = new Blob([bytes as unknown as BlobPart], { type: r.type || "image/png" });
-      // gpt-image accepts multiple reference images via repeated image[] fields
       form.append("image[]", blob, r.name || `ref-${i}.png`);
     });
-    const res = await fetch(EDIT_ENDPOINT, {
+    const res = await fetch(edit, {
       method: "POST",
-      headers: { authorization: `Bearer ${key}` },
+      headers: { authorization: `Bearer ${auth.key}` },
       body: form,
     });
     if (!res.ok) {
-      console.error("[openai-image] edit error", res.status, (await res.text().catch(() => "")).slice(0, 400));
-      return null;
+      console.error(
+        "[openai-image] edit error",
+        auth.via,
+        res.status,
+        (await res.text().catch(() => "")).slice(0, 400)
+      );
+      // Gateway may not support edits — fall back to text-only generation.
+      return generateImage(prompt, opts);
     }
     const json = (await res.json()) as { data?: { b64_json?: string; url?: string }[] };
     const d = json.data?.[0];
@@ -66,7 +89,7 @@ export async function generateImageWithRefs(
     return null;
   } catch (err) {
     console.error("[openai-image] edit exception", err);
-    return null;
+    return generateImage(prompt, opts);
   }
 }
 
@@ -75,14 +98,15 @@ export async function generateImage(
   prompt: string,
   opts?: { size?: ImageSize; quality?: "low" | "medium" | "high" | "auto" }
 ): Promise<string | null> {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) return null;
-  const model = process.env.OPENAI_IMAGE_MODEL || "gpt-image-2";
+  const auth = imageAuth();
+  if (!auth) return null;
+  const { gen } = endpoints(auth.via);
+  const model = imageModel(auth.via);
   const quality = opts?.quality || (process.env.OPENAI_IMAGE_QUALITY as "high") || "high";
   try {
-    const res = await fetch(ENDPOINT, {
+    const res = await fetch(gen, {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+      headers: { "content-type": "application/json", authorization: `Bearer ${auth.key}` },
       body: JSON.stringify({
         model,
         prompt,
@@ -92,7 +116,12 @@ export async function generateImage(
       }),
     });
     if (!res.ok) {
-      console.error("[openai-image] error", res.status, (await res.text().catch(() => "")).slice(0, 400));
+      console.error(
+        "[openai-image] error",
+        auth.via,
+        res.status,
+        (await res.text().catch(() => "")).slice(0, 400)
+      );
       return null;
     }
     const json = (await res.json()) as { data?: { b64_json?: string; url?: string }[] };
@@ -107,10 +136,7 @@ export async function generateImage(
 }
 
 /**
- * Build the image prompt for ONE carousel slide. The on-slide text is rendered
- * verbatim and a shared style bible is repeated on every slide so the set reads
- * as one cohesive carousel (gpt-image generations can't take reference images,
- * so the style bible is how we hold consistency).
+ * Build the image prompt for ONE carousel slide.
  */
 export function carouselSlidePrompt(args: {
   index: number;
@@ -122,13 +148,14 @@ export function carouselSlidePrompt(args: {
   topic: string;
 }): string {
   const { index, total, title, body, art, styleBible, topic } = args;
-  const overlay = [title, body].filter(Boolean).join(" — ");
   return [
-    `Premium Instagram carousel slide ${index} of ${total}, portrait orientation, high-end social design.`,
-    `Topic of the whole carousel: ${topic}.`,
-    `Render this text overlay on the slide VERBATIM (no paraphrasing, no spelling changes), in a sleek modern sans-serif with strong hierarchy: "${overlay}".`,
-    `Background art for THIS slide: ${art}.`,
-    `High contrast between text and background, generous margins, clean composition, editorial polish, no watermark, no UI chrome, no borders.`,
-    `SHARED STYLE BIBLE — match exactly on every slide so the set is cohesive: ${styleBible}.`,
-  ].join(" ");
+    styleBible ? `SHARED STYLE (identical on every slide): ${styleBible}` : "",
+    `Carousel topic: ${topic}. Slide ${index} of ${total}.`,
+    `HEADLINE (render VERBATIM): "${title}"`,
+    body ? `BODY (render VERBATIM): "${body}"` : "",
+    art ? `MAIN VISUAL: ${art}` : "",
+    `Portrait 4:5 slide. Clean, professional, founder-led. No watermarks, no gibberish text.`,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }

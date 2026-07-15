@@ -24,7 +24,13 @@ type SlideReq = {
  */
 export async function POST(req: Request) {
   if (!imageModelConfigured()) {
-    return NextResponse.json({ error: "Image model not configured (set OPENAI_API_KEY)." }, { status: 503 });
+    return NextResponse.json(
+      {
+        error:
+          "Image model not configured. Set OPENAI_API_KEY or AI_GATEWAY_API_KEY (Gateway can render gpt-image).",
+      },
+      { status: 503 }
+    );
   }
 
   let payload: { topic?: string; total?: number; styleBible?: string; slide?: SlideReq };
