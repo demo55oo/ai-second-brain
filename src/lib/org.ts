@@ -129,10 +129,46 @@ export function keywordRoute(instruction: string): TeamPlan {
 
   let format: JarvisNodeId = "text";
   if (has("newsletter", "email newsletter", "broadcast", "email blast", "email campaign", "weekly email")) format = "newsletter";
-  else if (has("carousel", "slides", "slide deck", "swipe", "cheatsheet", "cheat sheet", "listicle")) format = "carousel";
-  else if (has("picture", "image post", "graphic", "single image")) format = "picture";
+  else if (
+    has(
+      "carousel",
+      "slides",
+      "slide deck",
+      "swipe",
+      "cheatsheet",
+      "cheat sheet",
+      "listicle",
+      "deck",
+      "swipe post"
+    )
+  )
+    format = "carousel";
+  else if (
+    has(
+      "picture",
+      "image post",
+      "graphic",
+      "single image",
+      "generate image",
+      "generate an image",
+      "generate images",
+      "create an image",
+      "create image",
+      "dall-e",
+      "dalle",
+      "midjourney",
+      "canva",
+      "visual asset",
+      "designed asset",
+      "course profile"
+    )
+  )
+    // API brain renders visuals via the carousel pipeline (branded slides).
+    format = "carousel";
   else if (has("reel", "short form", "short-form", "tiktok")) format = "reels";
   else if (has("long form", "long-form", "youtube", "video script", "vsl")) format = "longform";
+  // Bare "image" / "images" / "visual" (avoid matching "imaginative")
+  else if (/\b(images?|visuals?|artwork|poster)\b/i.test(t)) format = "carousel";
 
   return {
     assignments: [{ department: "cmo", plan: [format] }],
